@@ -38,7 +38,7 @@ Backend:    Python + FastAPI
 Database:   PostgreSQL + pgvector
 LLM:        Gemini 2.5 Flash (Google AI API)
 Embedding:  Gemini Embedding API (cho RAG giai đoạn 2)
-Maps:       Google Geocoding API + Distance Matrix API
+Maps:       Goong Maps Geocoding + Distance Matrix API (đổi từ Google Maps Platform — xem mục 14)
 Migration:  Alembic
 Error log:  Sentry (free tier)
 File parse: pandas
@@ -75,7 +75,7 @@ exception-logistics/
 │   │   ├── impact_analyzer.py         # Phân tích tác động
 │   │   ├── option_generator.py        # Sinh phương án (gọi LLM)
 │   │   ├── ranker.py                  # Xếp hạng phương án
-│   │   ├── geocoder.py                # Google Maps wrapper
+│   │   ├── geocoder.py                # Goong Maps wrapper
 │   │   └── conflict_detector.py       # Phát hiện xung đột nhiều ngoại lệ
 │   ├── api/
 │   │   ├── auth.py
@@ -330,7 +330,7 @@ audit_logs (
   created_at TIMESTAMPTZ
 )
 
--- Cache Google Maps
+-- Cache Goong Maps
 geocode_cache (
   cache_id UUID PK,
   address_hash TEXT UNIQUE,  -- MD5 của địa chỉ
@@ -774,7 +774,7 @@ System:
 **Secrets:** Tất cả API key trong `.env`, không commit vào git.
 ```
 GEMINI_API_KEY=
-GOOGLE_MAPS_API_KEY=
+GOONG_API_KEY=
 DATABASE_URL=
 JWT_SECRET=
 SENTRY_DSN=
@@ -784,11 +784,13 @@ SENTRY_DSN=
 
 ---
 
-## 14. GOOGLE MAPS INTEGRATION
+## 14. MAPS INTEGRATION (Goong Maps)
 
-**Geocoding:** Chuyển `area` (khu vực dispatcher nhập) thành tọa độ `{lat, lng}`.
+**Đổi khác thiết kế ban đầu (lý do kỹ thuật bắt buộc, xác nhận 2026-09-02):** mục này ban đầu ghi Google Maps Platform (Geocoding API + Distance Matrix API). Trong lúc lấy `GOOGLE_MAPS_API_KEY` thật, phát hiện Việt Nam nằm trong danh sách "Prohibited Territories" chính thức của Google Maps Platform Terms of Service (cùng nhóm với Trung Quốc, Iran, Triều Tiên, Syria, Cuba...) — xác nhận độc lập qua trang điều khoản chính thức của Google (`cloud.google.com/maps-platform/terms/maps-prohibited-territories`) và qua nhân viên Google Maps Support, không phải lỗi cấu hình hay UI: tài khoản billing gắn Việt Nam KHÔNG THỂ dùng Google Maps Platform, dù đã thanh toán prepayment. Chuyển sang **Goong Maps** (goong.io) — nhà cung cấp bản đồ Việt Nam, API REST tương thích gần như 1-1 với Google Geocoding/Distance Matrix (tự quảng cáo là "drop-in replacement"), hỗ trợ đầy đủ địa chỉ Việt Nam. Nhờ toàn bộ tích hợp Maps đã được cô lập trong `backend/core/geocoder.py` (đúng nguyên tắc lớp trung gian duy nhất giống `llm_adapter.py` ở mục 2), chỉ cần đổi 1 file + tên biến env (`GOOGLE_MAPS_API_KEY` → `GOONG_API_KEY`), không ảnh hưởng gì khác trong spec — thiết kế cache + graceful degradation bên dưới giữ nguyên 100%.
 
-**Distance Matrix:** Tính khoảng cách và thời gian di chuyển giữa vị trí xe và các điểm cần thiết (điểm giao còn lại, điểm sửa xe gần nhất).
+**Geocoding:** Chuyển `area` (khu vực dispatcher nhập) thành tọa độ `{lat, lng}`. Endpoint: `GET https://rsapi.goong.io/geocode?address={address}&api_key={GOONG_API_KEY}`.
+
+**Distance Matrix:** Tính khoảng cách và thời gian di chuyển giữa vị trí xe và các điểm cần thiết (điểm giao còn lại, điểm sửa xe gần nhất). Endpoint: `GET https://rsapi.goong.io/DistanceMatrix?origins={lat,lng}&destinations={lat,lng}&vehicle=car&api_key={GOONG_API_KEY}`.
 
 **Caching:** Kết quả lưu vào `geocode_cache` theo hash của địa chỉ. Không gọi API lại với cùng địa chỉ.
 
@@ -969,7 +971,7 @@ alembic init alembic
 
 # 7. .env
 cp .env.example .env
-# Điền các API key vào .env (GEMINI_API_KEY, GOOGLE_MAPS_API_KEY, DATABASE_URL, JWT_SECRET, SENTRY_DSN)
+# Điền các API key vào .env (GEMINI_API_KEY, GOONG_API_KEY, DATABASE_URL, JWT_SECRET, SENTRY_DSN)
 ```
 
 Chi tiết từng bước nhỏ hơn (kèm theo dõi tiến độ) nằm trong `BUILD_PLAN.md` — Giai đoạn 1.
@@ -994,7 +996,7 @@ Ngày 5-6:   LLM Adapter + Gemini integration
             + Option generator + LLM output parser
 
 Ngày 7:     Ranker (scoring algorithm)
-            + Google Maps integration + cache
+            + Goong Maps integration + cache
             + Resource locking
 
 Ngày 8-9:   Frontend — Dashboard dispatcher
@@ -1034,7 +1036,7 @@ Một feature được coi là xong khi:
 
 Prompt viết bằng **tiếng Anh** (theo mục 8), lưu trong bảng `prompt_versions`. Mỗi lần gọi LLM, `llm_adapter.py` ghép: **[System prompt chung]** + **[User prompt theo `sub_type` (hoặc `group`)]** + **[CONTEXT — JSON dữ liệu thực tế của ngoại lệ]**.
 
-`CONTEXT` là JSON được `option_generator.py` build tự động từ DB trước khi gọi LLM, gồm: thông tin ngoại lệ (`exception_group`, `sub_type`, `severity`, `description`, `vehicle_id`, `area`), thông tin xe/tài xế (tra từ `vehicles`: `driver_name`, `max_payload_kg` — đồng thời là hạng tải trọng của xe theo kg, dùng để chọn xe thay thế đủ sức chở VÀ để AI nhận biết giới hạn tải trọng khi cân nhắc đổi tuyến, `cost_per_km` — hoặc `companies.default_cost_per_km` nếu xe chưa có giá riêng, `vehicle_type` mô tả tự do nếu công ty có khai báo), thông tin chuyến (`planned_departure_time`, các `stops` còn lại với `eta`/`sla_deadline`/`priority_tier`/`sla_penalty`/`volume_kg`/`cargo_type`), kết quả `impact_analysis` (điểm bị ảnh hưởng, phút trễ, `sla_breach`), khoảng cách/tuyến từ Google Maps nếu có, và `ranking_weights` của company (để LLM viết `explanation` bám đúng ưu tiên cost/time/sla mà không cần biết rank cuối — rank do `ranker.py` tính riêng, không phải LLM).
+`CONTEXT` là JSON được `option_generator.py` build tự động từ DB trước khi gọi LLM, gồm: thông tin ngoại lệ (`exception_group`, `sub_type`, `severity`, `description`, `vehicle_id`, `area`), thông tin xe/tài xế (tra từ `vehicles`: `driver_name`, `max_payload_kg` — đồng thời là hạng tải trọng của xe theo kg, dùng để chọn xe thay thế đủ sức chở VÀ để AI nhận biết giới hạn tải trọng khi cân nhắc đổi tuyến, `cost_per_km` — hoặc `companies.default_cost_per_km` nếu xe chưa có giá riêng, `vehicle_type` mô tả tự do nếu công ty có khai báo), thông tin chuyến (`planned_departure_time`, các `stops` còn lại với `eta`/`sla_deadline`/`priority_tier`/`sla_penalty`/`volume_kg`/`cargo_type`), kết quả `impact_analysis` (điểm bị ảnh hưởng, phút trễ, `sla_breach`), khoảng cách/tuyến từ Goong Maps nếu có, và `ranking_weights` của company (để LLM viết `explanation` bám đúng ưu tiên cost/time/sla mà không cần biết rank cuối — rank do `ranker.py` tính riêng, không phải LLM).
 
 ### 19.0 System prompt (dùng chung cho MỌI lần gọi — `sub_type = 'system'`)
 
@@ -1370,4 +1372,4 @@ group, not just one.
 
 *Last updated: v5.2 — Bỏ "khách đe dọa tài xế" khỏi quy tắc ghi đè toàn cục #1 (mục 5.2): sản phẩm tập trung vào logistics hàng hóa, tình huống này hợp lý hơn ở logistics chở người và không có cơ chế nào trong luồng nhập liệu để dispatcher khai báo nó xảy ra — quyết định của người dùng là bỏ hẳn thay vì thêm câu hỏi capture mới. Quy tắc #1 giờ chỉ còn "tai nạn có người bị thương → critical".*
 
-*Lịch sử rút gọn: v5.3 đổi model LLM (mục 8) từ `gemini-2.5-flash` sang `gemini-3.6-flash` (bị Google sunset cho key/project mới, phát hiện lúc test thật Giai đoạn 10) + thêm cơ chế xoay vòng tối đa 3 API key khi hết hạn mức free tier. v5.1 đổi `vehicles.vehicle_type` thành mô tả tự do không bắt buộc, `max_payload_kg` trở thành căn cứ DUY NHẤT vừa chọn xe thay thế (mục 5.4) vừa đối chiếu biển cấm tải trọng trên đường; hạ 4 ngưỡng leo thang severity (`late_departure` >30', `wrong_address`/`change_location` >5km, `minor_breakdown` >30'); bỏ ép `cost_estimate=0` mặc định trong system prompt/prompt accident; sửa 2 chỗ sót (enum cũ trong comment `schedules.stops`, ghi chú "10km" cũ) + thêm ghi chú "Mở rộng sau này" vào mục 7. v5.0 thiết kế lại toàn bộ Excel/schema theo trục tần suất thay đổi — 2 sheet `Danh_muc_xe`/`Ke_hoach_giao_hang` thay cho `Chuyen`/`Diem_giao` cũ, bỏ cơ chế tự sao chép ≤7 ngày (giả định sai), `planned_departure_time` đổi sang tự tính, thêm `vehicles.cost_per_km`. v4.3 sửa đơn vị "chuyến" ≠ "ca", thêm `trip_sequence` để 1 xe chạy nhiều chuyến/ca. v4.2 thêm trường giờ đến kho để tách nguyên nhân trễ + làm rõ vehicle_id là tra cứu DB thường, không phải tự động dò tìm. v4.1 sheet chuyến thành tùy chọn + tự sao chép chuyến lặp lại (bỏ ở v5.0) + làm rõ 2 đường nhập liệu (form/Excel). v4.0 redesign schema: bảng `vehicles`, cấu hình company (depot/cost_per_km), `priority_tier` thay `sla_penalty` bắt buộc, mục 5.4 tải trọng/hàng cồng kềnh. Phần 4 (fake seed data lịch sử) vẫn tạm hoãn tới cuối. Đây là nguồn sự thật duy nhất. Mọi quyết định mới cập nhật vào đây trước khi code.*
+*Lịch sử rút gọn: v5.4 đổi provider Maps (mục 2, 14, 19) từ Google Maps Platform sang Goong Maps — Việt Nam là "Prohibited Territory" chính thức của Google Maps Platform Terms of Service, xác nhận qua trang điều khoản chính thức của Google và qua Google Maps Support, tài khoản billing Việt Nam không thể dùng được dù đã prepay; Goong Maps (goong.io) là "drop-in replacement" tương thích gần 1-1, chỉ đổi 1 file (`geocoder.py`) + tên biến env (`GOOGLE_MAPS_API_KEY`→`GOONG_API_KEY`) nhờ đã cô lập theo đúng nguyên tắc lớp trung gian mục 2. v5.3 đổi model LLM (mục 8) từ `gemini-2.5-flash` sang `gemini-3.6-flash` (bị Google sunset cho key/project mới, phát hiện lúc test thật Giai đoạn 10) + thêm cơ chế xoay vòng tối đa 3 API key khi hết hạn mức free tier. v5.1 đổi `vehicles.vehicle_type` thành mô tả tự do không bắt buộc, `max_payload_kg` trở thành căn cứ DUY NHẤT vừa chọn xe thay thế (mục 5.4) vừa đối chiếu biển cấm tải trọng trên đường; hạ 4 ngưỡng leo thang severity (`late_departure` >30', `wrong_address`/`change_location` >5km, `minor_breakdown` >30'); bỏ ép `cost_estimate=0` mặc định trong system prompt/prompt accident; sửa 2 chỗ sót (enum cũ trong comment `schedules.stops`, ghi chú "10km" cũ) + thêm ghi chú "Mở rộng sau này" vào mục 7. v5.0 thiết kế lại toàn bộ Excel/schema theo trục tần suất thay đổi — 2 sheet `Danh_muc_xe`/`Ke_hoach_giao_hang` thay cho `Chuyen`/`Diem_giao` cũ, bỏ cơ chế tự sao chép ≤7 ngày (giả định sai), `planned_departure_time` đổi sang tự tính, thêm `vehicles.cost_per_km`. v4.3 sửa đơn vị "chuyến" ≠ "ca", thêm `trip_sequence` để 1 xe chạy nhiều chuyến/ca. v4.2 thêm trường giờ đến kho để tách nguyên nhân trễ + làm rõ vehicle_id là tra cứu DB thường, không phải tự động dò tìm. v4.1 sheet chuyến thành tùy chọn + tự sao chép chuyến lặp lại (bỏ ở v5.0) + làm rõ 2 đường nhập liệu (form/Excel). v4.0 redesign schema: bảng `vehicles`, cấu hình company (depot/cost_per_km), `priority_tier` thay `sla_penalty` bắt buộc, mục 5.4 tải trọng/hàng cồng kềnh. Phần 4 (fake seed data lịch sử) vẫn tạm hoãn tới cuối. Đây là nguồn sự thật duy nhất. Mọi quyết định mới cập nhật vào đây trước khi code.*

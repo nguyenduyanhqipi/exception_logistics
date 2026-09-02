@@ -1,12 +1,18 @@
-"""geocoder.py — wrapper Google Geocoding + Distance Matrix (mục 14).
+"""geocoder.py — wrapper Goong Maps Geocoding + Distance Matrix (mục 14).
 
-GHI CHÚ QUAN TRỌNG: viết ở thời điểm `GOOGLE_MAPS_API_KEY` của công ty đang
-lỗi/chưa hoạt động — mọi hàm ở đây đã thiết kế "graceful degradation" NGAY TỪ
-ĐẦU theo đúng mục 14 (không phải thêm sau): lỗi mạng/key/quota đều bị bắt và
-trả `None`, KHÔNG BAO GIỜ raise ra ngoài, để `option_generator`/job vẫn tiếp
-tục chạy mà chỉ thiếu thông tin khoảng cách. Khi có key thật hoạt động, cần
-chạy lại `scripts/test_geocoder.py` để xác nhận toạ độ trả về hợp lý cho địa
-chỉ Hà Nội thật — phần ĐÓ chưa verify được trong lúc code do key đang lỗi.
+GHI CHÚ QUAN TRỌNG (đổi provider so với thiết kế ban đầu ở mục 41): Google Maps
+Platform xác nhận KHÔNG dùng được cho tài khoản billing Việt Nam — Việt Nam nằm
+trong danh sách "Prohibited Territories" chính thức của Google Maps Platform
+Terms of Service (cùng nhóm với Trung Quốc, Iran, Triều Tiên, Syria...), xác
+nhận độc lập qua trang chính thức của Google và qua Google Maps Support. Vì
+vậy chuyển sang Goong Maps (goong.io) — API tương thích gần như 1-1 với Google
+Geocoding/Distance Matrix ("drop-in replacement"), hỗ trợ đầy đủ Việt Nam.
+
+Thiết kế "graceful degradation" GIỮ NGUYÊN như bản Google (mục 14, viết ngay từ
+đầu chứ không phải thêm sau): lỗi mạng/key/quota đều bị bắt và trả `None`,
+KHÔNG BAO GIỜ raise ra ngoài, để `option_generator`/job vẫn tiếp tục chạy mà
+chỉ thiếu thông tin khoảng cách. Cần chạy lại `scripts/test_geocoder.py` với
+`GOONG_API_KEY` thật để xác nhận toạ độ trả về hợp lý cho địa chỉ Hà Nội thật.
 """
 import hashlib
 import os
@@ -20,8 +26,8 @@ from models import GeocodeCache
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
-GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
+GEOCODE_URL = "https://rsapi.goong.io/geocode"
+DISTANCE_MATRIX_URL = "https://rsapi.goong.io/DistanceMatrix"
 
 
 def _address_hash(address: str) -> str:
@@ -41,12 +47,12 @@ def geocode(db: Session, address: str) -> "dict | None":
     if cached is not None and cached.coordinates is not None:
         return cached.coordinates
 
-    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    api_key = os.environ.get("GOONG_API_KEY")
     if not api_key:
         return None
 
     try:
-        response = httpx.get(GEOCODE_URL, params={"address": address, "key": api_key}, timeout=10.0)
+        response = httpx.get(GEOCODE_URL, params={"address": address, "api_key": api_key}, timeout=10.0)
         response.raise_for_status()
         data = response.json()
         if data.get("status") != "OK" or not data.get("results"):
@@ -79,14 +85,14 @@ def distance_matrix(db: Session, origin: str, destination: str) -> "dict | None"
     if dest_hash in existing_matrix:
         return existing_matrix[dest_hash]
 
-    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    api_key = os.environ.get("GOONG_API_KEY")
     if not api_key:
         return None
 
     try:
         response = httpx.get(
             DISTANCE_MATRIX_URL,
-            params={"origins": origin, "destinations": destination, "key": api_key},
+            params={"origins": origin, "destinations": destination, "vehicle": "car", "api_key": api_key},
             timeout=10.0,
         )
         response.raise_for_status()

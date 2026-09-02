@@ -22,7 +22,7 @@ migration.
    "worker chạy riêng, không chung tiến trình với API".
 3. Điền 3 biến môi trường còn thiếu (đánh dấu `sync: false` trong
    `render.yaml`, Render sẽ hỏi khi tạo) cho CẢ web lẫn worker:
-   `GEMINI_API_KEY`, `GOOGLE_MAPS_API_KEY`, `SENTRY_DSN` (Sentry để trống nếu
+   `GEMINI_API_KEY`, `GOONG_API_KEY`, `SENTRY_DSN` (Sentry để trống nếu
    chưa dùng). `DATABASE_URL`/`JWT_SECRET` đã tự sinh.
 4. Deploy. Kiểm tra: `curl https://<tên-service>.onrender.com/health` trả
    `{"status":"ok"}`.

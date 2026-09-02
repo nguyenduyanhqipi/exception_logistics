@@ -1,16 +1,15 @@
-"""Test geocoder.py (BUILD_PLAN.md bước 7.2-7.4).
+"""Test geocoder.py (BUILD_PLAN.md bước 7.2-7.4) — bản Goong Maps (mục 41).
 
-GHI CHÚ: `GOOGLE_MAPS_API_KEY` của company đang lỗi/rỗng (user báo lỗi lúc
-code) nên KHÔNG thể verify "geocode ra đúng toạ độ hợp lý" bằng key thật —
-phần đó để trống, cần chạy lại khi có key hoạt động. 3 việc test được mà
-KHÔNG cần key thật hoạt động:
+GHI CHÚ: `GOONG_API_KEY` của công ty có thể chưa được cấu hình lúc chạy test
+này — phần "geocode ra đúng toạ độ hợp lý bằng key thật" để trống, cần chạy
+lại khi có key hoạt động. 3 việc test được mà KHÔNG cần key thật hoạt động:
   1. Cache logic (7.3) — mock httpx.get, xác nhận gọi API đúng 1 lần cho 2 lần
      geocode cùng địa chỉ.
-  2. Graceful degradation khi KHÔNG có key (7.4, đúng tình trạng thật hiện tại
-     của company) — không raise, trả None sạch sẽ.
-  3. Graceful degradation khi CÓ key nhưng SAI/invalid (7.4, gọi API THẬT với
-     key rác để mô phỏng "sai key tạm thời" đúng nghĩa đen của checkpoint) —
-     Google trả lỗi REQUEST_DENIED, code phải bắt và trả None, không crash.
+  2. Graceful degradation khi KHÔNG có key (7.4) — không raise, trả None sạch
+     sẽ.
+  3. Graceful degradation khi CÓ key nhưng SAI/invalid (7.4, gọi API THẬT của
+     Goong với key rác để mô phỏng "sai key") — Goong trả lỗi (status khác
+     "OK", hoặc HTTP lỗi), code phải bắt và trả None, không crash.
 """
 import os
 import sys
@@ -58,7 +57,7 @@ try:
         call_count["n"] += 1
         return fake_response
 
-    with patch.dict(os.environ, {"GOOGLE_MAPS_API_KEY": "fake-key-for-cache-test"}):
+    with patch.dict(os.environ, {"GOONG_API_KEY": "fake-key-for-cache-test"}):
         with patch("core.geocoder.httpx.get", side_effect=fake_get):
             result1 = geocoder.geocode(db, test_address)
             check("Lần gọi 1: trả toạ độ đúng từ (mock) API", result1 == {"lat": 21.0368, "lng": 105.7827})
@@ -71,18 +70,18 @@ try:
     cached_row = db.query(GeocodeCache).filter(GeocodeCache.address_hash == address_hash).first()
     check("geocode_cache có 1 dòng lưu đúng address_raw", cached_row is not None and cached_row.address_raw == test_address)
 
-    # ---- Test 2: graceful degradation KHÔNG CÓ key (7.4 — đúng tình trạng thật của company) ----
+    # ---- Test 2: graceful degradation KHÔNG CÓ key (7.4) ----
     db.query(GeocodeCache).filter(GeocodeCache.address_hash == address_hash).delete()
     db.commit()
-    with patch.dict(os.environ, {"GOOGLE_MAPS_API_KEY": ""}):
+    with patch.dict(os.environ, {"GOONG_API_KEY": ""}):
         result_no_key = geocoder.geocode(db, test_address)
-        check("Không có key (tình trạng thật hiện tại): trả None, KHÔNG raise exception", result_no_key is None)
+        check("Không có key: trả None, KHÔNG raise exception", result_no_key is None)
 
-    # ---- Test 3: graceful degradation với key SAI thật sự (gọi Google API THẬT) ----
-    with patch.dict(os.environ, {"GOOGLE_MAPS_API_KEY": "AIzaThisIsDefinitelyAnInvalidKey12345"}):
+    # ---- Test 3: graceful degradation với key SAI thật sự (gọi Goong API THẬT) ----
+    with patch.dict(os.environ, {"GOONG_API_KEY": "invalid-key-does-not-exist-12345"}):
         try:
             result_bad_key = geocoder.geocode(db, test_address)
-            check("Key sai (gọi Google API thật): trả None, KHÔNG raise exception", result_bad_key is None)
+            check("Key sai (gọi Goong API thật): trả None, KHÔNG raise exception", result_bad_key is None)
         except Exception as e:  # noqa: BLE001
             check(f"Key sai: KHÔNG được raise exception (đã raise: {e})", False)
 
