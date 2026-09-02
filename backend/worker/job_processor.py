@@ -159,9 +159,14 @@ def cleanup_expired_locks_job() -> int:
 
 
 def run_forever(poll_interval_seconds: int = 2, lock_cleanup_every_n_polls: int = 150):
-    """Entry point khi chạy `python worker/job_processor.py` (mục 16: worker
-    chạy riêng, không chung tiến trình với API). `lock_cleanup_every_n_polls`
-    mặc định 150 * 2s = 300s = 5 phút, đúng tần suất dọn lock mục 5.3."""
+    """Entry point khi chạy `python -m worker.job_processor` (mục 16: worker
+    chạy riêng, không chung tiến trình với API — PHẢI chạy dạng module (`-m`),
+    không phải `python worker/job_processor.py` trực tiếp, nếu không Python
+    chỉ coi `worker/` là thư mục tìm import chứ không phải `backend/` gốc,
+    gây `ModuleNotFoundError: No module named 'database'` khi chạy trong
+    Docker/container — lỗi thật đã gặp lúc deploy VM, xem BUILD_PLAN.md).
+    `lock_cleanup_every_n_polls` mặc định 150 * 2s = 300s = 5 phút, đúng tần
+    suất dọn lock mục 5.3."""
     poll_count = 0
     while True:
         db = SessionLocal()

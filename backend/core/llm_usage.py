@@ -5,7 +5,7 @@ gian, không có nguồn xác nhận real-time tại thời điểm code) — co
 `llm_usage_logs` dùng để theo dõi XU HƯỚNG chi phí tương đối, KHÔNG phải hoá
 đơn chính xác. Cập nhật hằng số này khi có bảng giá chính thức mới nhất.
 """
-from datetime import date, datetime, time, timezone
+from datetime import datetime, time, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -25,7 +25,16 @@ def estimate_cost_usd(tokens_in: int, tokens_out: int) -> Decimal:
 
 
 def count_calls_today(db: Session, company_id: str) -> int:
-    today_start = datetime.combine(date.today(), time.min, tzinfo=timezone.utc)
+    # PHẢI lấy ngày theo UTC (`datetime.now(timezone.utc).date()`), KHÔNG
+    # phải `date.today()` — `date.today()` trả về ngày theo múi giờ LOCAL của
+    # máy chủ, rồi gán `tzinfo=UTC` sẽ tạo mốc "đầu ngày" LỆCH hẳn so với UTC
+    # thật nếu server không chạy múi giờ UTC (vd server UTC+7: mốc "hôm nay"
+    # bị đẩy sớm hơn thực tế ~7 tiếng). Hậu quả thật: mọi lệnh gọi LLM trong
+    # khoảng lệch đó không được tính vào hạn mức trong ngày — hạn mức 100
+    # call/ngày (mục 8) coi như vô tác dụng suốt khoảng thời gian đó. Phát
+    # hiện qua `scripts/test_llm_quota.py` tự nhiên fail trên máy dev múi giờ
+    # UTC+7 (SEAST), không phải lỗi ở test.
+    today_start = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
     return db.execute(
         select(func.count()).select_from(LLMUsageLog).where(
             LLMUsageLog.company_id == company_id, LLMUsageLog.created_at >= today_start

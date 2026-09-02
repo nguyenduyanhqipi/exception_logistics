@@ -1,8 +1,22 @@
+import os
 import time
 from collections import defaultdict, deque
 
+import sentry_sdk
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+# `sentry_sdk` có sẵn trong requirements.txt, `SENTRY_DSN` có sẵn trong
+# .env.example/render.yaml/DEPLOY.md từ đầu dự án nhưng chưa từng được init ở
+# đâu — khai báo vô tác dụng. Chỉ init khi có DSN thật (mục "Sentry để trống
+# nếu chưa dùng" trong DEPLOY.md) — để trống thì KHÔNG init, app chạy y hệt
+# như trước, không lỗi/warning gì.
+SENTRY_DSN = os.environ.get("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_sdk.init(dsn=SENTRY_DSN)
 
 from api.auth import router as auth_router
 from api.decisions import router as decisions_router

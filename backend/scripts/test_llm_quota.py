@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from database import SessionLocal
 from models import LLMUsageLog
 from core.llm_adapter import LLMCallResult
+from core.llm_usage import count_calls_today
 import core.option_generator as og
 from core.option_generator import QuotaExceededError
 
@@ -29,7 +30,13 @@ def check(label, cond):
 company_id = "00000000-0000-0000-0000-000000000001"
 db = SessionLocal()
 
-before_count = db.query(LLMUsageLog).filter(LLMUsageLog.company_id == company_id).count()
+# PHẢI dùng count_calls_today (chỉ đếm TRONG NGÀY, đúng như has_quota_remaining
+# thật sự dùng) — KHÔNG phải đếm all-time. Dùng all-time từng gây bug thật cho
+# chính test này: sau nhiều ngày tích luỹ dữ liệu demo/test, all-time (53) >>
+# today (0), khiến `limit = before_count + 2` lớn hơn hẳn hạn mức thật trong
+# ngày, lần gọi thứ 3 không còn bị chặn như mong đợi (test tự báo FAIL sai,
+# không phải lỗi ở has_quota_remaining/count_calls_today).
+before_count = count_calls_today(db, company_id)
 
 
 def fake_generate_good(prompt):
@@ -58,7 +65,7 @@ try:
             print("QuotaExceededError message:", exc)
         check("Lần gọi 3: bị chặn đúng bằng QuotaExceededError rõ ràng", raised)
 
-        after_count = db.query(LLMUsageLog).filter(LLMUsageLog.company_id == company_id).count()
+        after_count = count_calls_today(db, company_id)
         check("llm_usage_logs ghi đúng 2 dòng mới (không ghi dòng cho lần bị chặn)", after_count - before_count == 2)
 
         log = db.query(LLMUsageLog).filter(LLMUsageLog.company_id == company_id).order_by(LLMUsageLog.created_at.desc()).first()

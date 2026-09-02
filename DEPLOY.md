@@ -83,7 +83,7 @@ Railway không dùng file blueprint kiểu `render.yaml` — làm qua dashboard/
    `DATABASE_URL` dùng biến tham chiếu `${{Postgres.DATABASE_URL}}` Railway
    cung cấp sẵn khi link 2 service cùng project.
 6. Thêm 1 service THỨ HAI cùng repo/thư mục nhưng đổi Start Command thành
-   `python worker/job_processor.py` (worker riêng, cùng biến môi trường).
+   `python -m worker.job_processor` (worker riêng, cùng biến môi trường).
 7. Deploy. Kiểm tra: gọi `GET /health` qua domain Railway cấp.
 
 ## Sau khi backend chạy — bước 11.2, 11.3 (chỉ áp dụng cho Cách A/B — Cách C đã gộp sẵn ở bước 3-4 phía trên)

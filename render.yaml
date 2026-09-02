@@ -30,7 +30,7 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    dockerCommand: python worker/job_processor.py
+    dockerCommand: python -m worker.job_processor
     plan: free
     envVars:
       - key: DATABASE_URL
