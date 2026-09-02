@@ -182,6 +182,8 @@
 
 *(Tham chiếu: mục 3)*
 
+**Ghi chú trước khi bắt đầu (khoảng trống backend phát hiện lúc này):** mục 12 liệt kê `POST /api/decisions` và `POST /api/outcomes` nhưng không có bước riêng nào ở Giai đoạn 5-7 xây chúng — bước 8.6 (xác nhận quyết định) không thể làm nếu thiếu. Đã bổ sung `backend/api/decisions.py` (2 endpoint) + `schemas/decision.py` NGAY TẠI ĐÂY trước khi làm UI, cùng lúc bổ sung `options` (thiếu) vào response `GET /api/exceptions/{id}` và `GET /api/exceptions/groups/{group_id}` (Giai đoạn 5 chỉ có `impact_analysis`, quên `options` — dispatcher không xem được phương án nếu thiếu). Test qua HTTP thật: confirm decision → exception chuyển `resolved`, dọn `resource_locks` liên quan, audit log ghi đúng `confirm_decision`; outcome ghi đúng; 3 nhánh lỗi (option không tồn tại → 404, thiếu cả exception_id/group_id → 422, option không thuộc đúng exception/group → 400) đều đúng.
+
 - [ ] **8.1** Setup routing + layout khung, trang đăng nhập gọi API auth.
   Kiểm tra: đăng nhập qua giao diện thật bằng tài khoản demo (Giai đoạn 2), vào được trang chính.
 - [ ] **8.2** `Dashboard.tsx` — danh sách ngoại lệ + trạng thái, filter theo severity/status.

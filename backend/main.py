@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import router as auth_router
+from api.decisions import router as decisions_router
 from api.exceptions import router as exceptions_router
 from api.jobs import router as jobs_router
 from api.schedules import router as schedules_router
@@ -50,6 +51,7 @@ app.include_router(vehicles_router)
 app.include_router(schedules_router)
 app.include_router(exceptions_router)
 app.include_router(jobs_router)
+app.include_router(decisions_router)
 
 
 @app.get("/health")

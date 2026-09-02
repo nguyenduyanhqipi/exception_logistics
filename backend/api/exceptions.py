@@ -58,6 +58,19 @@ def _active_exceptions_as_dicts(db: Session, exclude_id=None) -> list[dict]:
     return result
 
 
+def _option_to_dict(option: Option) -> dict:
+    return {
+        "option_id": str(option.option_id),
+        "description": option.description,
+        "cost_estimate": float(option.cost_estimate) if option.cost_estimate is not None else None,
+        "time_estimate_minutes": option.time_estimate_minutes,
+        "sla_risk_remaining": float(option.sla_risk_remaining) if option.sla_risk_remaining is not None else None,
+        "llm_explanation": option.llm_explanation,
+        "score": float(option.score) if option.score is not None else None,
+        "rank": option.rank,
+    }
+
+
 @router.post("", response_model=ExceptionResponse, status_code=status.HTTP_201_CREATED)
 def create_exception(
     payload: ExceptionCreate,
@@ -208,11 +221,13 @@ def get_exception_group(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy nhóm {group_id}")
 
     members = db.execute(select(Exception_).where(Exception_.exception_id.in_(group.exception_ids))).scalars().all()
+    options = db.execute(select(Option).where(Option.group_id == group.group_id).order_by(Option.rank)).scalars().all()
     return {
         "group_id": str(group.group_id),
         "mode": group.mode,
         "status": group.status,
         "exceptions": [ExceptionResponse.model_validate(m).model_dump(mode="json") for m in members],
+        "options": [_option_to_dict(o) for o in options],
     }
 
 
@@ -249,12 +264,7 @@ def create_manual_option(
     )
     db.commit()
     db.refresh(option)
-    return {
-        "option_id": str(option.option_id),
-        "description": option.description,
-        "cost_estimate": float(option.cost_estimate) if option.cost_estimate is not None else None,
-        "time_estimate_minutes": option.time_estimate_minutes,
-    }
+    return _option_to_dict(option)
 
 
 @router.get("/{exception_id}")
@@ -271,6 +281,14 @@ def get_exception_detail(
     job = db.execute(
         select(BackgroundJob).where(BackgroundJob.exception_id == exc.exception_id).order_by(BackgroundJob.created_at.desc())
     ).scalars().first()
+    # exception thuộc combined mode: options gắn vào group_id, không phải
+    # exception_id riêng lẻ (mục 5.3, 19.2) — vẫn hiển thị ở đây để dispatcher
+    # xem trực tiếp từ màn hình 1 trong 2 exception member cũng thấy được.
+    options = db.execute(
+        select(Option).where(
+            (Option.exception_id == exc.exception_id) | (Option.group_id == exc.group_id if exc.group_id else False)
+        ).order_by(Option.rank)
+    ).scalars().all()
 
     return {
         **ExceptionResponse.model_validate(exc).model_dump(mode="json"),
@@ -278,5 +296,6 @@ def get_exception_detail(
             "affected_stops": impact.affected_stops,
             "total_cost_estimate": float(impact.total_cost_estimate) if impact and impact.total_cost_estimate is not None else None,
         } if impact else None,
-        "job": {"job_id": str(job.job_id), "status": job.status} if job else None,
+        "job": {"job_id": str(job.job_id), "status": job.status, "error": job.error} if job else None,
+        "options": [_option_to_dict(o) for o in options],
     }
