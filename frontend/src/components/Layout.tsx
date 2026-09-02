@@ -18,6 +18,14 @@ export function Layout() {
             Dashboard
           </NavLink>
           <NavLink to="/exceptions/new">Nhập ngoại lệ mới</NavLink>
+          <NavLink to="/schedules/new">Nhập kế hoạch</NavLink>
+          <NavLink to="/excel-upload">Upload Excel</NavLink>
+          {user?.role === "manager" && (
+            <>
+              <NavLink to="/manager">Báo cáo</NavLink>
+              <NavLink to="/settings">Cài đặt</NavLink>
+            </>
+          )}
         </nav>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span className="user-info">

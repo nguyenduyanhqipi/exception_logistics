@@ -8,6 +8,10 @@ import { Dashboard } from "./pages/Dashboard";
 import { NewException } from "./pages/NewException";
 import { ExceptionDetail } from "./pages/ExceptionDetail";
 import { ExceptionGroup } from "./pages/ExceptionGroup";
+import { ManagerDashboard } from "./pages/ManagerDashboard";
+import { Settings } from "./pages/Settings";
+import { ScheduleInput } from "./pages/ScheduleInput";
+import { ExcelUpload } from "./pages/ExcelUpload";
 
 const queryClient = new QueryClient();
 
@@ -29,6 +33,10 @@ function App() {
               <Route path="/exceptions/new" element={<NewException />} />
               <Route path="/exceptions/:exceptionId" element={<ExceptionDetail />} />
               <Route path="/exception-groups/:groupId" element={<ExceptionGroup />} />
+              <Route path="/schedules/new" element={<ScheduleInput />} />
+              <Route path="/excel-upload" element={<ExcelUpload />} />
+              <Route path="/manager" element={<ManagerDashboard />} />
+              <Route path="/settings" element={<Settings />} />
             </Route>
           </Routes>
         </AuthProvider>
