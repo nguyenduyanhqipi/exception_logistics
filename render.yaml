@@ -1,0 +1,47 @@
+databases:
+  - name: exception-logistics-db
+    databaseName: exception_logistics
+    plan: free
+
+services:
+  - type: web
+    name: exception-logistics-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: exception-logistics-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+  - type: worker
+    name: exception-logistics-worker
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: python worker/job_processor.py
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: exception-logistics-db
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false

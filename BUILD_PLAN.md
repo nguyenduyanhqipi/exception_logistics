@@ -248,12 +248,18 @@ Phạm vi ảnh hưởng thực tế cần lưu ý khi dùng dữ liệu cũ: m�
 
 *(Tham chiếu: mục 2)*
 
+**Ghi chú quan trọng — dừng lại đúng chỗ cần quyền thật:** toàn bộ Giai đoạn này cần TÀI KHOẢN Railway/Render thật của bạn (đăng nhập, thanh toán nếu vượt free tier, quyết định chọn nền tảng nào) — không phải việc Claude Code có thể tự làm. Đã chuẩn bị sẵn MỌI THỨ để việc deploy chỉ còn vài bước thao tác tay: `backend/Dockerfile`, `backend/Procfile` (2 process: `web` + `worker` riêng, đúng mục 16), `render.yaml` (Render blueprint, tạo sẵn DB+web+worker chỉ bằng 1 click "New Blueprint"), `docker-compose.yml` (dev local tiện hơn, không bắt buộc cho production), `frontend/.env.example`. Chi tiết từng bước thao tác tay (cả 2 lựa chọn Render/Railway) ghi trong **`DEPLOY.md`** ở gốc project — đọc file đó khi bạn sẵn sàng deploy, không lặp lại ở đây. Cũng dọn `google-generativeai` (package deprecated không còn dùng từ Giai đoạn 6) khỏi `requirements.txt` để giảm dung lượng deploy.
+**Lưu ý pgvector chưa xác minh được:** không có quyền truy cập thật vào Railway/Render để kiểm tra cách bật pgvector hiện tại của từng nền tảng — ghi rõ trong `DEPLOY.md` để bạn tự kiểm tra tài liệu chính thức tại thời điểm deploy.
+
 - [ ] **11.1** Deploy backend + database lên Railway hoặc Render.
   Kiểm tra: gọi thử 1 API endpoint qua URL production, nhận response đúng.
+  **CẦN BẠN LÀM** (xem `DEPLOY.md`) — Claude Code không có tài khoản Railway/Render để tự thực hiện.
 - [ ] **11.2** Deploy frontend, trỏ đúng API URL production.
   Kiểm tra: mở URL production, đăng nhập và dùng thử được như môi trường local.
+  **CẦN BẠN LÀM** (xem `DEPLOY.md`) — cần chọn nền tảng hosting frontend (Vercel/Netlify/...) và tài khoản tương ứng.
 - [ ] **11.3** Chạy lại toàn bộ seed dữ liệu demo trên môi trường production.
   Kiểm tra: 6 kịch bản demo sẵn sàng trên bản production, giống hệt local.
+  **CẦN BẠN LÀM** (xem `DEPLOY.md`) — chạy 4 script seed đã có sẵn qua shell/exec của Railway/Render sau khi 11.1 xong.
 - [ ] **11.4** Diễn tập demo (rehearsal) — chạy thử toàn bộ kịch bản trình bày như lúc thi thật.
   Kiểm tra: không có bước nào bị lỗi/khựng giữa buổi diễn tập.
 - [ ] **11.5** Buffer cho sự cố cuối — dự phòng thời gian xử lý phát sinh trước ngày thi.
