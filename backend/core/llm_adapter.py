@@ -9,8 +9,27 @@ Dùng SDK `google-genai` (KHÔNG dùng `google-generativeai` như liệt kê ở
 xem cảnh báo FutureWarning khi import). `google-genai` là SDK chính thức thay
 thế, cùng thuộc Google, cùng gọi model `gemini-2.5-flash`, đổi 1 dòng cài đặt
 trong mục 16 mà không ảnh hưởng gì khác trong spec.
+
+XOAY VÒNG NHIỀU KEY: free tier Gemini giới hạn 20 request/ngày/key — với
+lượng test thật xuyên suốt Giai đoạn 6-10, 1 key không đủ (đã thật sự chạm
+giới hạn lúc test 10.3). User cấp thêm `GEMINI_API_KEY_2`/`GEMINI_API_KEY_3`
+làm dự phòng — khi 1 key báo lỗi hạn mức (429 RESOURCE_EXHAUSTED), tự động
+xoay sang key tiếp theo NGAY TRONG 1 lần gọi `generate()`, không cần
+option_generator.py biết chuyện này (đúng nguyên tắc mục 2: chi tiết LLM chỉ
+nằm trong file này).
+
+ĐỔI MODEL sang `gemini-3.6-flash` (khác mục 8 TECHNICAL_SPEC.md ghi
+`gemini-2.5-flash`) — lý do kỹ thuật bắt buộc: gọi thử `gemini-2.5-flash`
+bằng 2 key mới (`_2`/`_3`) trả lỗi thật `404 NOT_FOUND — "This model
+models/gemini-2.5-flash is no longer available to new users. Please update
+your code to use models/gemini-3.6-flash"`. Google đã sunset model này cho
+API key/project mới — chỉ key gốc (tạo trước) còn gọi được (nhưng đang hết
+quota). `gemini-3.6-flash` gọi được trên CẢ 3 key (kể cả key gốc — quota
+riêng, không tính chung với quota `2.5-flash` đã hết), xác nhận bằng gọi
+thật. Xem TECHNICAL_SPEC.md mục 8 đã cập nhật theo quyết định này.
 """
 import os
+import re
 import time
 
 from dotenv import load_dotenv
@@ -18,19 +37,29 @@ from google import genai
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.6-flash"
 
-_client = None
+_KEY_ENV_VARS = ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3")
+_clients: dict[str, genai.Client] = {}
+_current_key_index = 0
 
 
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY chưa được cấu hình trong .env")
-        _client = genai.Client(api_key=api_key)
-    return _client
+def _load_keys() -> list[str]:
+    keys = [os.environ.get(name) for name in _KEY_ENV_VARS]
+    return [k for k in keys if k]
+
+
+def _get_client_for_key(api_key: str) -> genai.Client:
+    if api_key not in _clients:
+        _clients[api_key] = genai.Client(api_key=api_key)
+    return _clients[api_key]
+
+
+_QUOTA_ERROR_PATTERN = re.compile(r"RESOURCE_EXHAUSTED|429|quota", re.IGNORECASE)
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    return bool(_QUOTA_ERROR_PATTERN.search(str(exc)))
 
 
 class LLMCallResult:
@@ -46,16 +75,34 @@ class LLMCallResult:
 def generate(prompt: str, model_name: str = MODEL_NAME) -> LLMCallResult:
     """Gọi LLM với 1 prompt đầy đủ (đã ghép system+user+CONTEXT). Trả về
     `LLMCallResult` — KHÔNG raise exception khi lỗi, để caller (option_generator)
-    tự quyết định retry/fallback theo mục 8."""
-    client = _get_client()
+    tự quyết định retry/fallback theo mục 8. Tự xoay vòng key khi gặp lỗi
+    hạn mức (xem docstring đầu file) — thử LẦN LƯỢT hết các key trước khi
+    báo thất bại."""
+    global _current_key_index
+    keys = _load_keys()
+    if not keys:
+        raise RuntimeError("Chưa cấu hình GEMINI_API_KEY (hoặc _2/_3) trong .env")
+
+    last_error = None
     start = time.monotonic()
-    try:
-        response = client.models.generate_content(model=model_name, contents=prompt)
-        latency_ms = int((time.monotonic() - start) * 1000)
-        usage = response.usage_metadata
-        tokens_in = usage.prompt_token_count if usage else 0
-        tokens_out = usage.candidates_token_count if usage else 0
-        return LLMCallResult(response.text, tokens_in, tokens_out, latency_ms, success=True)
-    except Exception as exc:  # noqa: BLE001 - LLM có thể lỗi đủ kiểu (network, quota, key sai...)
-        latency_ms = int((time.monotonic() - start) * 1000)
-        return LLMCallResult("", 0, 0, latency_ms, success=False, error=str(exc))
+    for attempt in range(len(keys)):
+        key_index = (_current_key_index + attempt) % len(keys)
+        api_key = keys[key_index]
+        client = _get_client_for_key(api_key)
+        try:
+            response = client.models.generate_content(model=model_name, contents=prompt)
+            latency_ms = int((time.monotonic() - start) * 1000)
+            usage = response.usage_metadata
+            tokens_in = usage.prompt_token_count if usage else 0
+            tokens_out = usage.candidates_token_count if usage else 0
+            _current_key_index = key_index  # key này còn dùng được -> giữ làm key ưu tiên cho lần gọi sau
+            return LLMCallResult(response.text, tokens_in, tokens_out, latency_ms, success=True)
+        except Exception as exc:  # noqa: BLE001 - LLM có thể lỗi đủ kiểu (network, quota, key sai...)
+            last_error = exc
+            if not _is_quota_error(exc):
+                break  # lỗi không phải do hạn mức (vd network) -> xoay key không giúp được gì, dừng ngay
+            # Lỗi hạn mức -> thử key tiếp theo trong vòng lặp, không trả lỗi vội.
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    _current_key_index = (_current_key_index + 1) % len(keys)  # lần gọi sau bắt đầu từ key khác, tránh kẹt ở key vừa hết hạn mức
+    return LLMCallResult("", 0, 0, latency_ms, success=False, error=str(last_error))
