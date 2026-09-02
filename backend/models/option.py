@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -18,4 +18,4 @@ class Option(Base):
     llm_explanation = Column(Text, nullable=True)
     prompt_version_id = Column(UUID(as_uuid=True), ForeignKey("prompt_versions.version_id"), nullable=True)
     rank = Column(Integer, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

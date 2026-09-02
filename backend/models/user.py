@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -16,5 +16,5 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     role = Column(Text, nullable=False)
     full_name = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     deleted_at = Column(DateTime(timezone=True), nullable=True)

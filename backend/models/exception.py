@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Numeric, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -15,7 +15,7 @@ class ExceptionGroup(Base):
     exception_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=False)
     mode = Column(Text, nullable=False)
     status = Column(Text, nullable=False, server_default="pending")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class Exception_(Base):
@@ -33,7 +33,7 @@ class Exception_(Base):
     description = Column(Text, nullable=True)
     status = Column(Text, nullable=False, server_default="pending")
     reported_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
-    reported_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    reported_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -45,7 +45,7 @@ class ResourceLock(Base):
     resource_type = Column(Text, nullable=False)
     resource_id = Column(Text, nullable=False)
     locked_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
-    locked_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    locked_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
 
@@ -56,4 +56,4 @@ class ImpactAnalysis(Base):
     exception_id = Column(UUID(as_uuid=True), ForeignKey("exceptions.exception_id"), nullable=False)
     affected_stops = Column(JSONB, nullable=False, server_default="[]")
     total_cost_estimate = Column(Numeric, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

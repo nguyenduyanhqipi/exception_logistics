@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Numeric, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from models.base import Base
@@ -15,5 +15,5 @@ class Vehicle(Base):
     max_payload_kg = Column(Numeric, nullable=False)
     cost_per_km = Column(Numeric, nullable=True)
     status = Column(Text, nullable=False, server_default="active")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     deleted_at = Column(DateTime(timezone=True), nullable=True)

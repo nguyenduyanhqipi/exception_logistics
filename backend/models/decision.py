@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -14,7 +14,7 @@ class Decision(Base):
     selected_option_id = Column(UUID(as_uuid=True), ForeignKey("options.option_id"), nullable=False)
     confirmed_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
     override_note = Column(Text, nullable=True)
-    confirmed_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    confirmed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class Outcome(Base):
@@ -26,4 +26,4 @@ class Outcome(Base):
     actual_cost = Column(Numeric, nullable=True)
     notes = Column(Text, nullable=True)
     recorded_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
-    recorded_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    recorded_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

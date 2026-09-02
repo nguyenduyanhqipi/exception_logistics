@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Numeric, Text
+from sqlalchemy import Column, DateTime, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -18,4 +18,4 @@ class Company(Base):
     default_depot_address = Column(Text, nullable=True)
     default_depot_area = Column(Text, nullable=True)
     default_cost_per_km = Column(Numeric, nullable=False, server_default="8000")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

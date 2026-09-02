@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from core.conflict_detector import detect_conflict
@@ -171,6 +171,18 @@ def create_exception(
             db.flush()
             existing_exc.group_id = group.group_id
         exception.group_id = group.group_id
+
+        # Thành viên có sẵn (existing_exc) có thể còn 1 job 'analyze_exception'
+        # tạo TRƯỚC khi bị gộp nhóm mà worker chưa kịp xử lý — nếu để nguyên,
+        # job đó chạy độc lập và sinh ra 1 phương án ngoài luồng, phá vỡ đúng
+        # tinh thần "1 quyết định phối hợp duy nhất" (mục 5.3, 10). Huỷ mọi job
+        # còn dở của TOÀN BỘ thành viên nhóm (trừ job mới sắp tạo cho combined
+        # mode) trước khi tiếp tục.
+        db.execute(
+            update(BackgroundJob)
+            .where(BackgroundJob.exception_id.in_(group.exception_ids), BackgroundJob.status.in_(("pending", "running")))
+            .values(status="failed", error="Đã gộp vào nhóm combined mode, xem job analyze_group của nhóm thay thế")
+        )
         job = BackgroundJob(company_id=current_user["company_id"], exception_id=exception.exception_id, job_type="analyze_group")
     else:
         job = BackgroundJob(company_id=current_user["company_id"], exception_id=exception.exception_id, job_type="analyze_exception")
@@ -222,12 +234,18 @@ def get_exception_group(
 
     members = db.execute(select(Exception_).where(Exception_.exception_id.in_(group.exception_ids))).scalars().all()
     options = db.execute(select(Option).where(Option.group_id == group.group_id).order_by(Option.rank)).scalars().all()
+    job = db.execute(
+        select(BackgroundJob)
+        .where(BackgroundJob.exception_id.in_(group.exception_ids), BackgroundJob.job_type == "analyze_group")
+        .order_by(BackgroundJob.created_at.desc())
+    ).scalars().first()
     return {
         "group_id": str(group.group_id),
         "mode": group.mode,
         "status": group.status,
         "exceptions": [ExceptionResponse.model_validate(m).model_dump(mode="json") for m in members],
         "options": [_option_to_dict(o) for o in options],
+        "job": {"job_id": str(job.job_id), "status": job.status, "error": job.error} if job else None,
     }
 
 

@@ -42,5 +42,5 @@ class Schedule(Base):
     stops = Column(JSONB, nullable=False, server_default="[]")
     status = Column(Text, nullable=False, server_default="active")
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     deleted_at = Column(DateTime(timezone=True), nullable=True)
