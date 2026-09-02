@@ -115,6 +115,12 @@ export function NewException() {
     setDepotOnTime(null);
     setHasInjury(null);
     setExtraValue("");
+    // customer_reject/customer_change chỉ ảnh hưởng ĐÚNG 1 điểm giao theo
+    // đúng thiết kế impact_analyzer.py (to_stop_order = from_stop_order),
+    // KHÔNG lan cả tuyến như delay/road_block/vehicle_issue — tự đặt lại để
+    // tránh dispatcher vô tình để tick sẵn làm severity tính sai (leo thang
+    // nhầm theo downstream_stops_affected khi thực ra không có).
+    setAffectsWholeRoute(newGroup !== "customer_reject" && newGroup !== "customer_change");
   }
 
   async function handleSubmit(e: FormEvent) {

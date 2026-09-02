@@ -39,12 +39,24 @@ def create_vehicle(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    existing = db.get(Vehicle, payload.vehicle_id)
+    # `vehicle_id` là PK TOÀN CỤC (không composite theo company_id, xem mục 4) —
+    # 1 vehicle_id chỉ thuộc về đúng 1 công ty trong toàn hệ thống. `db.get()`
+    # thường bị tenant filter (with_loader_criteria, database.py) ẩn mất các
+    # dòng của công ty KHÁC — nếu dùng `db.get()` trần ở đây, xe công ty khác
+    # sẽ coi như "chưa tồn tại", code chạy tiếp xuống INSERT rồi vỡ ràng buộc
+    # PK ở tầng DB (IntegrityError 500 thay vì 400 sạch sẽ — bug thật đã tái
+    # hiện và xác nhận bằng test HTTP). Phải chủ động `skip_tenant_filter` để
+    # thấy được xe của MỌI công ty khi kiểm tra trùng PK toàn cục.
+    existing = db.get(Vehicle, payload.vehicle_id, execution_options={"skip_tenant_filter": True})
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Xe {payload.vehicle_id} đã tồn tại",
-        )
+        # Dù xe thuộc công ty KHÁC vẫn phải chặn (insert cùng PK sẽ vỡ ràng
+        # buộc) — chỉ khác ở NỘI DUNG thông báo lỗi, tránh nói sai là "công ty
+        # bạn đã có xe này" khi thực ra là xe của công ty khác.
+        if str(existing.company_id) == current_user["company_id"]:
+            detail = f"Xe {payload.vehicle_id} đã tồn tại"
+        else:
+            detail = f"Mã xe {payload.vehicle_id} đã được công ty khác sử dụng, vui lòng chọn mã khác"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
     vehicle = Vehicle(company_id=current_user["company_id"], **payload.model_dump())
     db.add(vehicle)
@@ -91,7 +103,10 @@ async def upload_vehicles(
     created, updated = 0, 0
     for record in rows:
         vehicle_id = record["vehicle_id"]
-        vehicle = db.get(Vehicle, vehicle_id)
+        # Cùng lý do như create_vehicle ở trên: PHẢI skip_tenant_filter để
+        # phát hiện đúng vehicle_id đã thuộc công ty khác, tránh INSERT trùng
+        # PK toàn cục rồi vỡ ràng buộc DB (500) thay vì báo lỗi rõ ràng (400).
+        vehicle = db.get(Vehicle, vehicle_id, execution_options={"skip_tenant_filter": True})
         if vehicle is None:
             vehicle = Vehicle(company_id=current_user["company_id"], vehicle_id=vehicle_id)
             db.add(vehicle)
