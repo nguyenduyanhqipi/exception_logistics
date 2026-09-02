@@ -1,0 +1,11 @@
+.env
+venv/
+__pycache__/
+*.pyc
+node_modules/
+frontend/dist/
+*.log
+pgvector/
+_setup_tmp/
+~$*.xlsx
+.DS_Store
