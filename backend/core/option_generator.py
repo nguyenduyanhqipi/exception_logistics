@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.conflict_detector import detect_conflict
+from core.geocoder import distance_matrix
 from core.llm_adapter import MODEL_NAME, generate
 from core.llm_usage import DAILY_CALL_LIMIT_DEFAULT, has_quota_remaining, log_llm_call
 from models import Company, Exception_, ExceptionGroup, ImpactAnalysis, PromptVersion, Schedule, Vehicle
@@ -88,9 +89,29 @@ def build_context(db: Session, exception: Exception_) -> dict:
             "affected_stops": impact.affected_stops if impact else [],
             "total_cost_estimate": float(impact.total_cost_estimate) if impact and impact.total_cost_estimate is not None else None,
         },
-        "distance_info": None,  # Giai đoạn 7 (geocoder) sẽ điền, graceful degradation nếu thiếu (mục 14)
+        "distance_info": _build_distance_info(db, exception.area, schedule),
         "ranking_weights": company.ranking_weights if company else None,
     }
+
+
+def _build_distance_info(db: Session, origin_area: "str | None", schedule: "Schedule | None") -> "list[dict] | None":
+    """Khoảng cách/thời gian từ vị trí xe (origin_area) đến từng điểm giao còn
+    lại (mục 14). Graceful degradation: bất kỳ điểm nào geocoder không tính
+    được (API lỗi/hết hạn mức Maps) đơn giản vắng mặt khỏi list, KHÔNG chặn
+    CONTEXT — LLM/dispatcher chỉ thiếu thông tin khoảng cách của điểm đó."""
+    if not origin_area or schedule is None or not schedule.stops:
+        return None
+
+    info = []
+    for stop in schedule.stops:
+        address = stop.get("address")
+        if not address:
+            continue
+        result = distance_matrix(db, origin_area, address)
+        if result is not None:
+            info.append({"stop_id": stop.get("stop_id"), "order_id": stop.get("order_id"), **result})
+
+    return info or None
 
 
 def _exception_to_conflict_dict(db: Session, exc: Exception_) -> dict:

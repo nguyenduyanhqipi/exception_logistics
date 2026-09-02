@@ -1,10 +1,11 @@
 """job_processor.py — worker xử lý background_jobs (mục 11).
 
-rule_engine/impact_analyzer chạy ĐỒNG BỘ ngay lúc tạo exception
-(api/exceptions.py) — xem ghi chú BUILD_PLAN.md bước 5.1. Worker này lo phần
-I/O chậm: option_generator.py (LLM, Giai đoạn 6) đã nối thật; geocoder +
-ranker thật vào ở Giai đoạn 7 (hiện `score`/`rank` để trống, dispatcher vẫn
-thấy đủ mô tả/chi phí/thời gian ước tính từ LLM để tự so sánh).
+Pipeline đầy đủ đúng thứ tự mục 11: rule_engine/impact_analyzer chạy ĐỒNG BỘ
+ngay lúc tạo exception (api/exceptions.py, xem ghi chú BUILD_PLAN.md bước
+5.1) -> geocoder (bên trong option_generator.build_context, mục 14) ->
+option_generator (LLM, Giai đoạn 6) -> ranker (Giai đoạn 7) chạy Ở ĐÂY, sau
+khi có options, vì ranker cần TOÀN BỘ tập option để normalize so sánh với
+nhau (mục 7) — không thể rank từng option riêng lẻ lúc persist.
 """
 import time
 from datetime import datetime, timezone
@@ -13,10 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import BackgroundJob, Exception_, ExceptionGroup, Option
+from models import BackgroundJob, Company, Exception_, ExceptionGroup, Option
 from core.option_generator import QuotaExceededError, generate_options_for_exception, generate_options_for_group
+from core.ranker import rank_options
 
 SEVERITY_PRIORITY = {"critical": 0, "serious": 1, "warning": 2, None: 3}
+DEFAULT_RANKING_WEIGHTS = {"cost": 0.4, "time": 0.3, "sla_risk": 0.3}
 
 MANUAL_FALLBACK_DESCRIPTION = (
     "[AI không khả dụng] Vui lòng đánh giá tình huống và nhập phương án xử lý thủ công."
@@ -32,36 +35,47 @@ def _job_priority(db: Session, job: BackgroundJob):
     return (SEVERITY_PRIORITY.get(severity, 3), reported_at)
 
 
-def _persist_manual_fallback_option(db: Session, exception_id=None, group_id=None) -> None:
+def _persist_manual_fallback_option(db: Session, exception_id=None, group_id=None) -> list[Option]:
     """LLM fallback (mục 8): Gemini lỗi/hết hạn mức -> vẫn tạo 1 "phương án"
     placeholder để dispatcher có option_id để chọn/ghi đè qua
     POST /api/exceptions/{id}/manual-option (mục 8: "cho phép nhập phương án
     thủ công"), thay vì màn hình trắng không có gì để xác nhận."""
-    db.add(
-        Option(
+    option = Option(
+        exception_id=exception_id,
+        group_id=group_id,
+        description=MANUAL_FALLBACK_DESCRIPTION,
+        cost_estimate=0,
+        time_estimate_minutes=0,
+        sla_risk_remaining=0.5,
+    )
+    db.add(option)
+    return [option]
+
+
+def _persist_llm_options(db: Session, raw_options: list[dict], exception_id=None, group_id=None) -> list[Option]:
+    created = []
+    for raw in raw_options:
+        option = Option(
             exception_id=exception_id,
             group_id=group_id,
-            description=MANUAL_FALLBACK_DESCRIPTION,
-            rank=1,
+            description=raw.get("description"),
+            cost_estimate=raw.get("cost_estimate"),
+            time_estimate_minutes=raw.get("time_estimate_minutes"),
+            sla_risk_remaining=raw.get("sla_risk_remaining"),
+            llm_explanation=raw.get("explanation"),
+            # rationale không có cột riêng trong bảng options (mục 4) -> gộp
+            # vào llm_explanation để không mất thông tin LLM đã sinh ra.
         )
-    )
+        db.add(option)
+        created.append(option)
+    return created
 
 
-def _persist_llm_options(db: Session, raw_options: list[dict], exception_id=None, group_id=None) -> None:
-    for raw in raw_options:
-        db.add(
-            Option(
-                exception_id=exception_id,
-                group_id=group_id,
-                description=raw.get("description"),
-                cost_estimate=raw.get("cost_estimate"),
-                time_estimate_minutes=raw.get("time_estimate_minutes"),
-                sla_risk_remaining=raw.get("sla_risk_remaining"),
-                llm_explanation=raw.get("explanation"),
-                # rationale không có cột riêng trong bảng options (mục 4) -> gộp
-                # vào llm_explanation để không mất thông tin LLM đã sinh ra.
-            )
-        )
+def _company_ranking_weights(db: Session, company_id) -> dict:
+    company = db.get(Company, company_id)
+    if company is not None and company.ranking_weights:
+        return company.ranking_weights
+    return DEFAULT_RANKING_WEIGHTS
 
 
 def _process_job(db: Session, job: BackgroundJob):
@@ -78,10 +92,11 @@ def _process_job(db: Session, job: BackgroundJob):
             except QuotaExceededError as e:
                 options, usage, llm_error = None, {}, str(e)
             if options:
-                _persist_llm_options(db, options, exception_id=exc.exception_id)
+                created = _persist_llm_options(db, options, exception_id=exc.exception_id)
             else:
                 llm_error = llm_error or usage.get("error") or "LLM không sinh được phương án hợp lệ"
-                _persist_manual_fallback_option(db, exception_id=exc.exception_id)
+                created = _persist_manual_fallback_option(db, exception_id=exc.exception_id)
+            rank_options(db, created, _company_ranking_weights(db, exc.company_id))
 
         elif job.job_type == "analyze_group":
             exc = db.get(Exception_, job.exception_id)
@@ -91,15 +106,20 @@ def _process_job(db: Session, job: BackgroundJob):
             except QuotaExceededError as e:
                 options, usage, llm_error = None, {}, str(e)
             if options:
-                _persist_llm_options(db, options, group_id=group.group_id)
+                created = _persist_llm_options(db, options, group_id=group.group_id)
             else:
                 llm_error = llm_error or usage.get("error") or "LLM không sinh được phương án hợp lệ"
-                _persist_manual_fallback_option(db, group_id=group.group_id)
+                created = _persist_manual_fallback_option(db, group_id=group.group_id)
+            rank_options(db, created, _company_ranking_weights(db, group.company_id))
+            # 1 quyết định phối hợp cho combined mode (mục 5.3, 10) -> CẢ nhóm
+            # thành viên cùng chuyển awaiting_decision, không chỉ exception mà
+            # job.exception_id tình cờ trỏ tới.
+            for member in db.execute(select(Exception_).where(Exception_.exception_id.in_(group.exception_ids))).scalars():
+                member.status = "awaiting_decision"
         else:
             raise ValueError(f"job_type không hợp lệ: {job.job_type}")
 
-        exc = db.get(Exception_, job.exception_id) if job.exception_id else None
-        if exc is not None:
+        if job.job_type == "analyze_exception":
             exc.status = "awaiting_decision"
 
         # mục 8: LLM lỗi/hết hạn mức KHÔNG phải "job failed" theo nghĩa crash —
