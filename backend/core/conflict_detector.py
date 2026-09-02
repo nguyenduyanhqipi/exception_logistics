@@ -10,6 +10,8 @@ affected_stop_ids (list, optional), sub_type, area (optional), reported_at
 """
 from datetime import datetime
 
+from sqlalchemy import select
+
 NEEDS_REPLACEMENT_SUBTYPES = {"major_breakdown", "road_closed", "accident"}
 
 HARD_SIGNALS = {"same_vehicle", "same_driver", "same_stop", "resource_contention"}
@@ -31,6 +33,56 @@ def needs_replacement_vehicle(exc: dict) -> bool:
     if sub_type == "minor_breakdown" and exc.get("severity") == "serious":
         return True
     return False
+
+
+def nearest_available_vehicles(db, company_id: str, exc: dict, top_n: int = 2) -> list[str]:
+    """Xe active, không phải chính xe đang gặp sự cố, không đang bận (không
+    gắn với 1 exception active khác), xếp gần nhất theo khoảng cách ước tính
+    tới khu vực ngoại lệ (mục 5.3). Hệ thống không track GPS thời gian thực
+    (mục 1: "vị trí xe do dispatcher nhập tay") nên coi xe rảnh đang ở khu
+    vực kho mặc định của company — dùng `geocoder.distance_matrix` làm proxy
+    khoảng cách kho↔khu vực ngoại lệ. Graceful degradation (mục 14): geocoder
+    lỗi/hết hạn mức Maps → không có dữ liệu khoảng cách cho xe nào, fallback
+    về thứ tự `vehicle_id` (không loại xe nào vì thiếu dữ liệu, đúng tinh
+    thần mục 5.4 "thiếu dữ liệu không được làm hệ thống loại nhầm")."""
+    from core.geocoder import distance_matrix
+    from models import Company, Exception_, Vehicle
+
+    busy_vehicle_ids = {
+        row[0]
+        for row in db.execute(
+            select(Exception_.vehicle_id).where(
+                Exception_.company_id == company_id,
+                Exception_.status.in_(("pending", "analyzing", "awaiting_decision")),
+                Exception_.vehicle_id.is_not(None),
+            )
+        ).all()
+    }
+    own_vehicle_id = exc.get("vehicle_id")
+    candidates = db.execute(
+        select(Vehicle).where(
+            Vehicle.company_id == company_id,
+            Vehicle.status == "active",
+            Vehicle.vehicle_id != own_vehicle_id,
+            Vehicle.deleted_at.is_(None),
+        )
+    ).scalars().all()
+    candidates = [v for v in candidates if v.vehicle_id not in busy_vehicle_ids]
+
+    company = db.get(Company, company_id)
+    exc_area = exc.get("area")
+    depot_area = company.default_depot_area if company else None
+
+    ranked = []
+    for v in sorted(candidates, key=lambda v: v.vehicle_id):
+        distance_km = None
+        if exc_area and depot_area:
+            result = distance_matrix(db, depot_area, exc_area)
+            distance_km = result["distance_km"] if result else None
+        ranked.append((distance_km if distance_km is not None else float("inf"), v.vehicle_id))
+
+    ranked.sort(key=lambda r: (r[0], r[1]))
+    return [vehicle_id for _, vehicle_id in ranked[:top_n]]
 
 
 def _overlap(a, b) -> bool:

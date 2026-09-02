@@ -78,6 +78,14 @@ export function NewException() {
   const { data: schedules } = useQuery({
     queryKey: ["schedules"],
     queryFn: async () => (await apiClient.get<Schedule[]>("/api/schedules")).data,
+    // Chỉ hiện chuyến từ hôm nay trở đi — bảng schedules còn chứa dữ liệu lịch
+    // sử giả (scripts/seed_historical_exceptions.py) để làm phong phú báo cáo
+    // Giai đoạn 9, không phải chuyến đang chạy thật; lẫn vào dropdown này sẽ
+    // làm dispatcher khó tìm đúng chuyến đang cần khai báo ngoại lệ.
+    select: (data: Schedule[]) => {
+      const today = new Date().toISOString().slice(0, 10);
+      return data.filter((s) => s.shift_date >= today);
+    },
   });
 
   const [scheduleId, setScheduleId] = useState("");

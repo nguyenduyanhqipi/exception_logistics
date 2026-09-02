@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from core.conflict_detector import detect_conflict
+from core.conflict_detector import detect_conflict, nearest_available_vehicles
 from core.impact_analyzer import analyze_impact
 from core.rule_engine import calculate_severity, classify_sub_type
 from middleware.auth import get_current_user
@@ -151,10 +151,8 @@ def create_exception(
         "reported_at": reported_at,
     }
     active_exceptions = _active_exceptions_as_dicts(db, exclude_id=exception.exception_id)
-    # nearest_available_vehicles_fn=None ở Giai đoạn 5 (chưa có geocoder,
-    # Giai đoạn 7) -> tín hiệu resource_contention tạm thời không kích hoạt
-    # được, các tín hiệu same_vehicle/same_driver/same_stop vẫn hoạt động đủ.
-    mode, conflicting, signals = detect_conflict(new_exc_dict, active_exceptions, nearest_available_vehicles_fn=None)
+    nearest_fn = lambda e, top_n: nearest_available_vehicles(db, current_user["company_id"], e, top_n)  # noqa: E731
+    mode, conflicting, signals = detect_conflict(new_exc_dict, active_exceptions, nearest_available_vehicles_fn=nearest_fn)
 
     if mode == "combined" and conflicting is not None:
         existing_exc = db.get(Exception_, conflicting["exception_id"])
