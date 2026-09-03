@@ -12,11 +12,16 @@ trong mục 16 mà không ảnh hưởng gì khác trong spec.
 
 XOAY VÒNG NHIỀU KEY: free tier Gemini giới hạn 20 request/ngày/key — với
 lượng test thật xuyên suốt Giai đoạn 6-10, 1 key không đủ (đã thật sự chạm
-giới hạn lúc test 10.3). User cấp thêm `GEMINI_API_KEY_2`/`GEMINI_API_KEY_3`
-làm dự phòng — khi 1 key báo lỗi hạn mức (429 RESOURCE_EXHAUSTED), tự động
-xoay sang key tiếp theo NGAY TRONG 1 lần gọi `generate()`, không cần
-option_generator.py biết chuyện này (đúng nguyên tắc mục 2: chi tiết LLM chỉ
-nằm trong file này).
+giới hạn lúc test 10.3, rồi lại chạm lần nữa lúc regression test 2026-09-03
+dù đã có 3 key). User tiếp tục cấp thêm key dự phòng (đến `_5` tại thời điểm
+viết dòng này) — `_load_keys()` tự quét `GEMINI_API_KEY`, `GEMINI_API_KEY_2`
+... `GEMINI_API_KEY_10` (chỉ lấy biến nào thực sự có trong .env), KHÔNG cần
+sửa code mỗi lần thêm/bớt key, chỉ cần thêm dòng `GEMINI_API_KEY_N=...` vào
+.env. Khi 1 key báo lỗi hạn mức (429 RESOURCE_EXHAUSTED) HOẶC lỗi quá tải
+tạm thời phía Google (503 UNAVAILABLE — quan sát thực tế 2026-09-03: key vừa
+lỗi 503 thử lại vài phút sau lại thành công), tự động xoay sang key tiếp
+theo NGAY TRONG 1 lần gọi `generate()`, không cần option_generator.py biết
+chuyện này (đúng nguyên tắc mục 2: chi tiết LLM chỉ nằm trong file này).
 
 ĐỔI MODEL sang `gemini-3.6-flash` (khác mục 8 TECHNICAL_SPEC.md ghi
 `gemini-2.5-flash`) — lý do kỹ thuật bắt buộc: gọi thử `gemini-2.5-flash`
@@ -39,13 +44,14 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 MODEL_NAME = "gemini-3.6-flash"
 
-_KEY_ENV_VARS = ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "GEMINI_API_KEY_4")
+_MAX_KEYS = 10  # GEMINI_API_KEY, GEMINI_API_KEY_2, ..., GEMINI_API_KEY_10 — xem docstring đầu file
 _clients: dict[str, genai.Client] = {}
 _current_key_index = 0
 
 
 def _load_keys() -> list[str]:
-    keys = [os.environ.get(name) for name in _KEY_ENV_VARS]
+    names = ["GEMINI_API_KEY"] + [f"GEMINI_API_KEY_{i}" for i in range(2, _MAX_KEYS + 1)]
+    keys = [os.environ.get(name) for name in names]
     return [k for k in keys if k]
 
 
@@ -55,11 +61,15 @@ def _get_client_for_key(api_key: str) -> genai.Client:
     return _clients[api_key]
 
 
-_QUOTA_ERROR_PATTERN = re.compile(r"RESOURCE_EXHAUSTED|429|quota", re.IGNORECASE)
+_RETRYABLE_ERROR_PATTERN = re.compile(r"RESOURCE_EXHAUSTED|429|quota|UNAVAILABLE|503", re.IGNORECASE)
 
 
-def _is_quota_error(exc: Exception) -> bool:
-    return bool(_QUOTA_ERROR_PATTERN.search(str(exc)))
+def _is_retryable_error(exc: Exception) -> bool:
+    """429/quota (hạn mức riêng của key này) và 503/UNAVAILABLE (Google quá
+    tải tạm thời — quan sát thực tế: thử lại sau vài phút, có khi ngay key
+    khác, là qua) đều đáng thử key khác trước khi bỏ cuộc. Lỗi còn lại (key
+    sai, network...) xoay key không giúp được gì, dừng ngay."""
+    return bool(_RETRYABLE_ERROR_PATTERN.search(str(exc)))
 
 
 class LLMCallResult:
@@ -81,7 +91,7 @@ def generate(prompt: str, model_name: str = MODEL_NAME) -> LLMCallResult:
     global _current_key_index
     keys = _load_keys()
     if not keys:
-        raise RuntimeError("Chưa cấu hình GEMINI_API_KEY (hoặc _2/_3) trong .env")
+        raise RuntimeError("Chưa cấu hình GEMINI_API_KEY (hoặc _2.._10) trong .env")
 
     last_error = None
     start = time.monotonic()
@@ -99,9 +109,9 @@ def generate(prompt: str, model_name: str = MODEL_NAME) -> LLMCallResult:
             return LLMCallResult(response.text, tokens_in, tokens_out, latency_ms, success=True)
         except Exception as exc:  # noqa: BLE001 - LLM có thể lỗi đủ kiểu (network, quota, key sai...)
             last_error = exc
-            if not _is_quota_error(exc):
-                break  # lỗi không phải do hạn mức (vd network) -> xoay key không giúp được gì, dừng ngay
-            # Lỗi hạn mức -> thử key tiếp theo trong vòng lặp, không trả lỗi vội.
+            if not _is_retryable_error(exc):
+                break  # lỗi không phải hạn mức/quá tải tạm thời (vd network, key sai) -> xoay key không giúp được gì, dừng ngay
+            # Hạn mức hoặc quá tải tạm thời -> thử key tiếp theo trong vòng lặp, không trả lỗi vội.
 
     latency_ms = int((time.monotonic() - start) * 1000)
     _current_key_index = (_current_key_index + 1) % len(keys)  # lần gọi sau bắt đầu từ key khác, tránh kẹt ở key vừa hết hạn mức
