@@ -63,6 +63,7 @@ table.list-table tr:hover { background: #f9fafb; cursor: pointer; }
 .badge-analyzing { background: #dbeafe; color: #1e40af; }
 .badge-awaiting_decision { background: #fde68a; color: #92400e; }
 .badge-resolved { background: #dcfce7; color: #166534; }
+.badge-ok { background: #dcfce7; color: #166534; }
 
 .filters { display: flex; gap: 10px; margin-bottom: 14px; }
 .filters select { padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; }
@@ -80,3 +81,28 @@ table.list-table tr:hover { background: #f9fafb; cursor: pointer; }
 
 .step-indicator { display: flex; gap: 8px; margin-bottom: 20px; font-size: 13px; color: #9ca3af; }
 .step-indicator .current { color: #2563eb; font-weight: 600; }
+
+/* Dashboard "hoạt động hôm nay" — drill-down xe > ca > chuyến > đơn */
+.drill-summary { font-size: 13px; color: #6b7280; margin: -8px 0 14px; }
+.drill-muted { color: #6b7280; font-weight: 400; font-size: 12.5px; }
+.drill-row td { background: #f9fafb; padding: 10px 14px 14px 38px; }
+.drill-row:hover td { background: #f9fafb; }
+.drill-level { border-left: 2px solid #e5e7eb; padding-left: 12px; margin-top: 6px; }
+.drill-head {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 13.5px; color: #1f2937;
+}
+.drill-head:hover { background: #eef2f7; }
+.drill-empty { font-size: 13px; color: #9ca3af; padding: 6px 8px; }
+.drill-detail { margin: 4px 0 10px 20px; padding: 12px 14px; background: white; border: 1px solid #e5e7eb; border-radius: 6px; }
+.drill-dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 20px; margin: 0; }
+.drill-dl dt { font-size: 11.5px; text-transform: uppercase; color: #6b7280; font-weight: 600; }
+.drill-dl dd { margin: 2px 0 0; font-size: 13.5px; }
+.drill-stop-exc { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eef0f2; }
+.drill-exc-list { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.drill-exc-chip {
+  display: inline-flex; align-items: center; gap: 6px; background: none; border: none;
+  padding: 2px 0; cursor: pointer; font-size: 13px; color: #1f2937; text-align: left;
+}
+.drill-exc-chip:hover { text-decoration: underline; }
+.drill-quick-btn { padding: 5px 10px; font-size: 12.5px; }

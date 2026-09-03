@@ -17,6 +17,7 @@ export function Layout() {
           <NavLink to="/" end>
             Dashboard
           </NavLink>
+          <NavLink to="/history">Lịch sử</NavLink>
           <NavLink to="/exceptions/new">Nhập ngoại lệ mới</NavLink>
           <NavLink to="/schedules/new">Nhập kế hoạch</NavLink>
           <NavLink to="/excel-upload">Upload Excel</NavLink>

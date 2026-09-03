@@ -97,3 +97,58 @@ export interface ExceptionGroupDetail {
   options: OptionItem[];
   job: JobInfo | null;
 }
+
+// --- Dashboard "hoạt động hôm nay" (GET /api/dashboard/today) ---
+
+export interface DashboardOpenException {
+  exception_id: string;
+  schedule_id: string;
+  group_id: string | null;
+  exception_group: string;
+  sub_type: string;
+  severity: Severity | null;
+  status: ExceptionStatus;
+  area: string | null;
+  description: string | null;
+  reported_at: string | null;
+  // Rỗng = ngoại lệ ảnh hưởng cả chuyến, không khoanh vùng được đơn cụ thể.
+  affected_stop_ids: string[];
+  affected_order_ids: string[];
+}
+
+export interface DashboardTrip {
+  schedule_id: string;
+  trip_sequence: number;
+  depot_address: string | null;
+  depot_arrival_time: string | null;
+  planned_departure_time: string | null;
+  status: string;
+  order_count: number;
+  stops: Stop[];
+}
+
+export interface DashboardShift {
+  shift_label: string;
+  trip_count: number;
+  order_count: number;
+  trips: DashboardTrip[];
+}
+
+export interface DashboardVehicle {
+  vehicle_id: string;
+  driver_name: string | null;
+  driver_phone: string | null;
+  vehicle_type: string | null;
+  vehicle_status: string | null;
+  current_shift_order_count: number;
+  today_order_count: number;
+  shifts: DashboardShift[];
+  open_exceptions: DashboardOpenException[];
+}
+
+export interface DashboardToday {
+  shift_date: string;
+  current_shift_label: string;
+  server_time: string;
+  vehicles: DashboardVehicle[];
+}

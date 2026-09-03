@@ -6,6 +6,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
+import { History } from "./pages/History";
 import { NewException } from "./pages/NewException";
 import { ExceptionDetail } from "./pages/ExceptionDetail";
 import { ExceptionGroup } from "./pages/ExceptionGroup";
@@ -45,6 +46,7 @@ function App() {
               }
             >
               <Route path="/" element={<Dashboard />} />
+              <Route path="/history" element={<History />} />
               <Route path="/exceptions/new" element={<NewException />} />
               <Route path="/exceptions/:exceptionId" element={<ExceptionDetail />} />
               <Route path="/exception-groups/:groupId" element={<ExceptionGroup />} />
