@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import type { Schedule } from "../api/types";
 
@@ -85,17 +85,17 @@ export function NewException() {
   // sử giả (scripts/seed_historical_exceptions.py) để làm phong phú báo cáo
   // Giai đoạn 9, không phải chuyến đang chạy thật; lẫn vào dropdown này sẽ
   // làm dispatcher khó tìm đúng chuyến đang cần khai báo ngoại lệ.
-  // Nếu lọc theo hôm nay ra rỗng (VD: dữ liệu demo seed từ hôm trước chưa
-  // được refresh), fallback về ngày gần nhất có chuyến thay vì để dropdown
-  // trống im lặng — kèm cảnh báo rõ ràng cho dispatcher.
-  const { schedules, fallbackDate } = useMemo(() => {
-    if (!schedulesRaw) return { schedules: undefined, fallbackDate: null as string | null };
-    const upcoming = schedulesRaw.filter((s) => s.shift_date >= today);
-    if (upcoming.length > 0) return { schedules: upcoming, fallbackDate: null as string | null };
-    const latestDate = schedulesRaw.reduce((max, s) => (s.shift_date > max ? s.shift_date : max), "");
-    if (!latestDate) return { schedules: [], fallbackDate: null as string | null };
-    return { schedules: schedulesRaw.filter((s) => s.shift_date === latestDate), fallbackDate: latestDate };
-  }, [schedulesRaw, today]);
+  //
+  // QUYẾT ĐỊNH CÓ CHỦ ĐÍCH (không phải bug): nếu không có chuyến nào cho hôm
+  // nay, KHÔNG fallback sang ngày khác — chặn hẳn việc tạo ngoại lệ mới. Một
+  // ngoại lệ luôn phải gắn với 1 chuyến ĐANG chạy hôm nay; cho tạo nhầm lên
+  // 1 chuyến của ngày cũ (kể cả kèm banner cảnh báo) sẽ ghi sai dữ liệu thật
+  // vào hệ thống. Bản trước từng fallback + banner để không chặn demo khi
+  // seed data lệch ngày — nay đổi hẳn sang chặn cứng, vế "seed data chưa
+  // refresh" phải được xử lý bằng cách nhập kế hoạch/seed lại đúng ngày, không
+  // phải bằng cách nới lỏng phía frontend.
+  const schedules = useMemo(() => schedulesRaw?.filter((s) => s.shift_date >= today), [schedulesRaw, today]);
+  const noScheduleToday = schedules !== undefined && schedules.length === 0;
 
   const [scheduleId, setScheduleId] = useState("");
   const [group, setGroup] = useState("");
@@ -167,16 +167,27 @@ export function NewException() {
     }
   }
 
+  if (noScheduleToday) {
+    return (
+      <div className="page">
+        <h1>Nhập ngoại lệ mới</h1>
+        <div className="card">
+          <div className="error-banner">
+            Chưa có kế hoạch giao hàng cho hôm nay — vui lòng nhập kế hoạch trước khi khai báo ngoại lệ.
+          </div>
+          <Link to="/schedules/new" className="primary" style={{ display: "inline-block", marginTop: 12, textDecoration: "none", textAlign: "center" }}>
+            Sang trang Nhập kế hoạch
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <h1>Nhập ngoại lệ mới</h1>
       <form onSubmit={handleSubmit} className="card">
         {error && <div className="error-banner">{error}</div>}
-        {fallbackDate && (
-          <div className="error-banner">
-            Không có chuyến nào cho hôm nay ({today}). Đang hiển thị chuyến gần nhất: {fallbackDate}.
-          </div>
-        )}
 
         <div className="form-field">
           <label>1. Chọn chuyến</label>
@@ -188,9 +199,6 @@ export function NewException() {
               </option>
             ))}
           </select>
-          {schedules && schedules.length === 0 && (
-            <span className="hint">Hiện không có chuyến nào trong hệ thống. Vui lòng nhập kế hoạch giao hàng trước.</span>
-          )}
         </div>
 
         {schedule && schedule.stops.length > 0 && (

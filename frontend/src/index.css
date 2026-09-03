@@ -41,8 +41,8 @@ a { color: #2563eb; }
 .radio-option:hover { border-color: #93c5fd; }
 .radio-option.selected { border-color: #2563eb; background: #eff6ff; }
 
-button.primary { background: #2563eb; color: white; border: none; padding: 9px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; }
-button.primary:hover { background: #1d4ed8; }
+button.primary, a.primary { background: #2563eb; color: white; border: none; padding: 9px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+button.primary:hover, a.primary:hover { background: #1d4ed8; }
 button.primary:disabled { background: #93c5fd; cursor: not-allowed; }
 button.secondary { background: white; color: #374151; border: 1px solid #d1d5db; padding: 9px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; }
 button.secondary:hover { background: #f9fafb; }
