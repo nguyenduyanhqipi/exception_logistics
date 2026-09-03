@@ -106,7 +106,11 @@ export function NewException() {
   const [fromStopOrder, setFromStopOrder] = useState<number | "">("");
   const [affectsWholeRoute, setAffectsWholeRoute] = useState(true);
   const [toStopOrder, setToStopOrder] = useState<number | "">("");
-  const [delayMinutes, setDelayMinutes] = useState(0);
+  // String state (không phải number) cho input number có kiểm soát — nếu để
+  // useState(0) thì React giữ nguyên "0" hiển thị trong ô, gõ tiếp bị NỐI vào
+  // sau ("30" → hiển thị "030") thay vì thay thế, vì input DOM đang hiển thị
+  // "0" theo đúng giá trị React truyền vào, không phải placeholder.
+  const [delayMinutes, setDelayMinutes] = useState("0");
   const [area, setArea] = useState("");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -144,7 +148,7 @@ export function NewException() {
         answer_key: answerKey,
         from_stop_order: fromStopOrder,
         to_stop_order: affectsWholeRoute ? null : toStopOrder || null,
-        delay_minutes: delayMinutes,
+        delay_minutes: Number(delayMinutes) || 0,
         area: area || null,
         description: description || null,
       };
@@ -301,7 +305,7 @@ export function NewException() {
                   // sau cũng trễ đúng N phút đó (mục 15, kịch bản 1) — cùng 1 con
                   // số, không phải 2 input độc lập, tự đồng bộ để tránh dispatcher
                   // quên điền ô "delay_minutes" bên dưới.
-                  if (subType === "late_departure") setDelayMinutes(Number(e.target.value) || 0);
+                  if (subType === "late_departure") setDelayMinutes(e.target.value);
                 }}
               />
             ) : (
@@ -355,7 +359,8 @@ export function NewException() {
                 min={0}
                 value={delayMinutes}
                 disabled={subType === "late_departure"}
-                onChange={(e) => setDelayMinutes(Number(e.target.value))}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setDelayMinutes(e.target.value)}
               />
               {subType === "late_departure" && (
                 <span className="hint">Tự động lấy theo số phút trễ xuất phát ở trên.</span>

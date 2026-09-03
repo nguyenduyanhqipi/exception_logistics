@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "../api/client";
 import type { ExceptionSummary } from "../api/types";
+import { subTypeLabel } from "../labels";
 
 const SEVERITY_LABEL: Record<string, string> = { warning: "Cảnh báo", serious: "Nghiêm trọng", critical: "Khẩn cấp" };
 const STATUS_LABEL: Record<string, string> = {
@@ -74,7 +75,7 @@ export function Dashboard() {
               {data.map((exc) => (
                 <tr key={exc.exception_id} onClick={() => openException(exc)}>
                   <td>{exc.vehicle_id ?? "-"}</td>
-                  <td>{exc.sub_type}</td>
+                  <td>{subTypeLabel(exc.sub_type)}</td>
                   <td>{exc.area ?? "-"}</td>
                   <td>
                     {exc.severity && (

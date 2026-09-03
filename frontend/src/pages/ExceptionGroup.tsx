@@ -6,6 +6,7 @@ import type { ExceptionGroupDetail } from "../api/types";
 import { usePolling } from "../hooks/usePolling";
 import { OptionList } from "../components/OptionList";
 import { OutcomeForm } from "../components/OutcomeForm";
+import { subTypeLabel } from "../labels";
 
 const JOB_STATUS_LABEL: Record<string, string> = {
   pending: "Đang chờ xử lý...",
@@ -66,7 +67,7 @@ export function ExceptionGroup() {
         <div key={exc.exception_id} className="card">
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             <strong>Xe {exc.vehicle_id}</strong>
-            <span>{exc.sub_type}</span>
+            <span>{subTypeLabel(exc.sub_type)}</span>
             {exc.severity && <span className={`badge badge-${exc.severity}`}>{exc.severity}</span>}
             <span>{exc.area}</span>
           </div>

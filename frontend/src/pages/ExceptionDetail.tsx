@@ -6,6 +6,7 @@ import type { ExceptionDetail as ExceptionDetailType } from "../api/types";
 import { usePolling } from "../hooks/usePolling";
 import { OptionList } from "../components/OptionList";
 import { OutcomeForm } from "../components/OutcomeForm";
+import { subTypeLabel } from "../labels";
 
 const JOB_STATUS_LABEL: Record<string, string> = {
   pending: "Đang chờ xử lý...",
@@ -61,7 +62,7 @@ export function ExceptionDetail() {
   return (
     <div className="page">
       <h1>
-        Ngoại lệ: {data.sub_type} — Xe {data.vehicle_id ?? "-"}
+        Ngoại lệ: {subTypeLabel(data.sub_type)} — Xe {data.vehicle_id ?? "-"}
       </h1>
 
       {error && <div className="error-banner">{error}</div>}
