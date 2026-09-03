@@ -1,4 +1,5 @@
 .env
+Claude outputs/env
 venv/
 __pycache__/
 *.pyc
