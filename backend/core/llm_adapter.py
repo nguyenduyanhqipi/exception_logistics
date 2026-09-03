@@ -39,7 +39,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 MODEL_NAME = "gemini-3.6-flash"
 
-_KEY_ENV_VARS = ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3")
+_KEY_ENV_VARS = ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "GEMINI_API_KEY_4")
 _clients: dict[str, genai.Client] = {}
 _current_key_index = 0
 
