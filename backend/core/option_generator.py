@@ -7,17 +7,30 @@ Giai đoạn 7).
 """
 import json
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.conflict_detector import detect_conflict
 from core.geocoder import distance_matrix
-from core.llm_adapter import MODEL_NAME, generate
+from core.llm_adapter import MODEL_NAME, LLMCallResult, generate
 from core.llm_usage import DAILY_CALL_LIMIT_DEFAULT, has_quota_remaining, log_llm_call
 from models import Company, Exception_, ExceptionGroup, ImpactAnalysis, PromptVersion, Schedule, Vehicle
 
 MAX_LLM_RETRIES = 3
+
+# `generate()` (llm_adapter.py) tự xoay tối đa 30 key khi gặp lỗi hạn mức/quá
+# tải — với MAX_LLM_RETRIES=3 lần retry parse-JSON nữa lồng bên ngoài, KHÔNG
+# có giới hạn nào chặn tổng thời gian nếu Google chậm đều trên nhiều key liên
+# tiếp (worst case về lý thuyết: 3 x 30 lần thử, mỗi lần vài giây). Giới hạn
+# tổng ~90s cho CẢ quá trình sinh phương án — hết giờ thì dừng, coi như lỗi
+# AI (dispatcher nhập thủ công), giống hệt nhánh lỗi AI hiện có, KHÔNG treo vô
+# thời hạn worker (mỗi job xử lý tuần tự — 1 job treo lâu chặn luôn các job
+# severity thấp hơn xếp hàng sau, xem job_processor.py::_job_priority).
+MAX_TOTAL_LLM_SECONDS = 90.0
 
 
 class QuotaExceededError(RuntimeError):
@@ -180,6 +193,36 @@ def _try_parse_options(text: str) -> "list[dict] | None":
     return None
 
 
+def _generate_bounded(prompt: str, timeout_seconds: float) -> LLMCallResult:
+    """Bọc `generate()` (I/O thuần, KHÔNG đụng DB) trong 1 thread phụ để có
+    thể áp timeout — `generate()` là hàm đồng bộ, không có cách nào ngắt giữa
+    chừng 1 lệnh gọi HTTP đang treo ngoài việc chạy nó trên thread khác rồi bỏ
+    qua nếu quá hạn. CHỈ thread hoá phần gọi generate() thuần, KHÔNG thread
+    hoá cả `_call_llm_with_retry` (có ghi DB qua `log_llm_call`) — SQLAlchemy
+    Session không thread-safe, nếu timeout mà thread phụ vẫn lỡ chạm DB ở nền
+    sau khi thread chính đã tiếp tục dùng chung session sẽ hỏng dữ liệu.
+
+    Nếu timeout, thread phụ có thể vẫn tiếp tục chạy ngầm tới khi tự xong (Python
+    không có cách kill thread) — chấp nhận được vì nó không còn đụng gì đến
+    DB/state của thread chính nữa, chỉ lãng phí 1 lệnh gọi API. Rủi ro còn lại:
+    `llm_adapter._current_key_index`/`_clients` là biến module-level không có
+    lock — thread phụ mutate chúng sau khi đã "hết hạn" có thể khiến lần gọi
+    kế tiếp bắt đầu từ key hơi khác dự kiến, không gây lỗi/crash, tự sửa ở lần
+    gọi sau.
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(generate, prompt)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except FutureTimeoutError:
+        return LLMCallResult(
+            "", 0, 0, int(timeout_seconds * 1000), success=False,
+            error=f"Hết thời gian chờ AI sau {int(timeout_seconds)}s",
+        )
+    finally:
+        executor.shutdown(wait=False)
+
+
 def _call_llm_with_retry(
     full_prompt: str,
     db: "Session | None" = None,
@@ -187,9 +230,14 @@ def _call_llm_with_retry(
     exception_id: "str | None" = None,
     prompt_version_id: "str | None" = None,
     daily_limit: int = DAILY_CALL_LIMIT_DEFAULT,
+    max_total_seconds: float = MAX_TOTAL_LLM_SECONDS,
 ) -> tuple["list[dict] | None", dict]:
     """Retry logic mục 8: gọi -> parse -> nếu fail, dọn text thử lại -> nếu vẫn
     fail, gọi lại kèm nhắc rõ 'respond ONLY with valid JSON' -> tối đa 3 lần.
+    Toàn bộ vòng lặp bị chặn trong ngân sách `max_total_seconds` CỘNG DỒN (không
+    phải mỗi lần thử) — hết ngân sách thì dừng ngay, trả về như 1 lỗi AI bình
+    thường (usage["error"] set, options=None), KHÔNG raise, để caller xử lý y
+    hệt nhánh AI lỗi/hết hạn mức hiện có.
 
     Nếu truyền `db`+`company_id`: kiểm tra hạn mức `DAILY_CALL_LIMIT_DEFAULT`
     (mục 8) TRƯỚC mỗi lần gọi thật (kể cả các lần retry — mỗi lần đều tính vào
@@ -200,13 +248,19 @@ def _call_llm_with_retry(
     usage = {"tokens_in": 0, "tokens_out": 0, "latency_ms": 0, "success": False, "error": None}
     prompt = full_prompt
     track_usage = db is not None and company_id is not None
+    loop_start = time.monotonic()
 
     for attempt in range(MAX_LLM_RETRIES):
+        remaining = max_total_seconds - (time.monotonic() - loop_start)
+        if remaining <= 0:
+            usage["error"] = f"Hết thời gian chờ AI sau {max_total_seconds:.0f}s — chuyển sang nhập phương án thủ công."
+            break
+
         if track_usage and not has_quota_remaining(db, company_id, limit=daily_limit):
             usage["error"] = f"Đã chạm giới hạn {daily_limit} lượt gọi AI/ngày cho công ty này"
             raise QuotaExceededError(usage["error"])
 
-        result = generate(prompt)
+        result = _generate_bounded(prompt, remaining)
         usage["tokens_in"] += result.tokens_in
         usage["tokens_out"] += result.tokens_out
         usage["latency_ms"] += result.latency_ms
