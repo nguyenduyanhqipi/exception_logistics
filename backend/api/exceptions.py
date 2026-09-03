@@ -19,11 +19,39 @@ from models import (
     Schedule,
     Vehicle,
 )
-from schemas.exception import ExceptionCreate, ExceptionResponse, ManualOptionCreate
+from schemas.exception import ExceptionCreate, ExceptionResponse, ExceptionUpdate, ManualOptionCreate
 
 router = APIRouter(prefix="/api/exceptions", tags=["exceptions"])
 
 ACTIVE_STATUSES = ("pending", "analyzing", "awaiting_decision")
+
+# Các field đầu vào rule_engine tiêu thụ rồi bỏ (chỉ `severity` được lưu). Giữ
+# nguyên bản vào `exceptions.input_context` để form SỬA nạp lại được — xem
+# models/exception.py::Exception_.input_context.
+_SIGNAL_FIELDS = (
+    "answer_key",
+    # Ghi chú NGƯỜI DÙNG gõ, tách khỏi `exceptions.description` (đã bị nối
+    # thêm `description_note` do rule engine sinh) để form sửa nạp lại đúng
+    # phần người dùng viết, không nối chồng note cũ.
+    "description",
+    "depot_on_time",
+    "has_injury",
+    "from_stop_order",
+    "to_stop_order",
+    "delay_minutes",
+    "departure_delay_min",
+    "driver_contact_lost_min",
+    "estimated_traffic_duration_min",
+    "is_repeat_delivery",
+    "new_address_distance_km",
+    "has_time_conflict",
+    "new_location_distance_km",
+    "estimated_repair_min",
+)
+
+
+def _input_context(payload) -> dict:
+    return {"exception_group": payload.exception_group, **{f: getattr(payload, f) for f in _SIGNAL_FIELDS}}
 
 
 def _active_exceptions_as_dicts(db: Session, exclude_id=None) -> list[dict]:
@@ -130,6 +158,7 @@ def create_exception(
         area=payload.area,
         description=" | ".join(description_parts) if description_parts else None,
         customer_accepted_delay_min=payload.customer_accepted_delay_min,
+        input_context=_input_context(payload),
         status="pending",
         reported_by=current_user["user_id"],
         reported_at=reported_at,
@@ -316,3 +345,180 @@ def get_exception_detail(
         "job": {"job_id": str(job.job_id), "status": job.status, "error": job.error} if job else None,
         "options": [_option_to_dict(o) for o in options],
     }
+
+
+def _load_editable_exception(exception_id: str, current_user: dict, db: Session) -> Exception_:
+    """Ngoại lệ được phép sửa/xoá: đúng công ty, chưa soft-delete, và CHƯA
+    `resolved`. Ngoại lệ đã resolved là dữ liệu KPI đã chốt (đã có decision +
+    outcome ghi nhận) — sửa/xoá nó sẽ làm lệch báo cáo on_time_rate/chi phí,
+    nên chặn cứng ở tầng API chứ không chỉ ẩn nút ở UI."""
+    exc = db.get(Exception_, exception_id)
+    if exc is None or str(exc.company_id) != current_user["company_id"] or exc.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy ngoại lệ {exception_id}")
+    if exc.status == "resolved":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ngoại lệ đã xử lý xong (resolved) — không sửa/xoá được nữa để giữ đúng số liệu KPI đã chốt.",
+        )
+    return exc
+
+
+def _reset_analysis(db: Session, exc: Exception_, current_user: dict) -> BackgroundJob:
+    """Huỷ job đang dở + xoá phương án cũ của ngoại lệ (hoặc của cả nhóm nếu
+    nó thuộc combined mode) rồi tạo job phân tích mới. Bắt buộc sau khi sửa:
+    phương án cũ được sinh từ thông tin SAI, để nguyên là dispatcher xác nhận
+    nhầm phương án dựa trên dữ liệu đã bị thay."""
+    if exc.group_id is not None:
+        group = db.get(ExceptionGroup, exc.group_id)
+        scope_ids = list(group.exception_ids)
+        for opt in db.execute(select(Option).where(Option.group_id == group.group_id)).scalars().all():
+            db.delete(opt)
+        job_type = "analyze_group"
+    else:
+        scope_ids = [exc.exception_id]
+        job_type = "analyze_exception"
+
+    for opt in db.execute(select(Option).where(Option.exception_id.in_(scope_ids))).scalars().all():
+        db.delete(opt)
+
+    db.execute(
+        update(BackgroundJob)
+        .where(BackgroundJob.exception_id.in_(scope_ids), BackgroundJob.status.in_(("pending", "running")))
+        .values(status="failed", error="Ngoại lệ đã được sửa, job này phân tích trên dữ liệu cũ — xem job mới thay thế")
+    )
+
+    # Cả nhóm phải quay lại 'analyzing': phương án phối hợp của nhóm vừa bị
+    # xoá nên KHÔNG thành viên nào còn phương án để xác nhận.
+    for member in db.execute(select(Exception_).where(Exception_.exception_id.in_(scope_ids))).scalars():
+        member.status = "analyzing"
+
+    job = BackgroundJob(company_id=current_user["company_id"], exception_id=exc.exception_id, job_type=job_type)
+    db.add(job)
+    return job
+
+
+@router.put("/{exception_id}", response_model=ExceptionResponse)
+def update_exception(
+    exception_id: str,
+    payload: ExceptionUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Sửa lại thông tin đã nhập của 1 ngoại lệ chưa xử lý xong (việc 5).
+
+    Chạy lại ĐÚNG luồng lúc tạo (classify_sub_type -> analyze_impact ->
+    calculate_severity) trên `schedule` cũ — `schedule_id` KHÔNG đổi được.
+    KHÔNG chạy lại `detect_conflict`: việc gom/tách nhóm là quyết định khác,
+    sửa thông tin không nên âm thầm kéo ngoại lệ ra/vào nhóm sau lưng
+    dispatcher — nhóm hiện tại giữ nguyên, chỉ phương án được sinh lại.
+    """
+    exc = _load_editable_exception(exception_id, current_user, db)
+
+    schedule = db.get(Schedule, exc.schedule_id)
+    if schedule is None or schedule.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy chuyến của ngoại lệ này")
+
+    try:
+        classification = classify_sub_type(
+            payload.exception_group, payload.answer_key, payload.depot_on_time, payload.has_injury
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    sub_type = classification["sub_type"]
+    # Cùng lý do như create_exception: stops[].eta là giờ địa phương (naive).
+    now_local = datetime.now()
+    impact = analyze_impact(
+        stops=schedule.stops or [],
+        delay_minutes=payload.delay_minutes,
+        from_stop_order=payload.from_stop_order,
+        to_stop_order=payload.to_stop_order,
+        shift_date=schedule.shift_date,
+        now=now_local,
+    )
+    rule_context = {
+        "departure_delay_min": payload.departure_delay_min,
+        "driver_contact_lost_min": payload.driver_contact_lost_min,
+        "estimated_traffic_duration_min": payload.estimated_traffic_duration_min,
+        "is_repeat_delivery": payload.is_repeat_delivery,
+        "new_address_distance_km": payload.new_address_distance_km,
+        "has_time_conflict": payload.has_time_conflict,
+        "new_location_distance_km": payload.new_location_distance_km,
+        "estimated_repair_min": payload.estimated_repair_min,
+        "has_injury": payload.has_injury,
+        **impact,
+    }
+    severity_before = exc.severity
+    severity = calculate_severity(sub_type, rule_context)
+
+    # Không nối chồng `description_note` nếu nó đã nằm sẵn trong ghi chú (xảy
+    # ra với ngoại lệ tạo trước khi có `input_context`: form sửa nạp lại cả
+    # phần note đã nối lần trước).
+    note = classification["description_note"]
+    description_parts = [p for p in [payload.description] if p]
+    if note and (not payload.description or note not in payload.description):
+        description_parts.append(note)
+
+    exc.exception_group = payload.exception_group
+    exc.sub_type = sub_type
+    exc.severity = severity
+    exc.area = payload.area
+    exc.description = " | ".join(description_parts) if description_parts else None
+    exc.customer_accepted_delay_min = payload.customer_accepted_delay_min
+    exc.input_context = _input_context(payload)
+
+    existing_impact = db.execute(
+        select(ImpactAnalysis).where(ImpactAnalysis.exception_id == exc.exception_id)
+    ).scalar_one_or_none()
+    if existing_impact is None:
+        db.add(ImpactAnalysis(exception_id=exc.exception_id, affected_stops=impact["affected_stops"]))
+    else:
+        existing_impact.affected_stops = impact["affected_stops"]
+
+    _reset_analysis(db, exc, current_user)
+
+    db.add(
+        AuditLog(
+            company_id=current_user["company_id"],
+            user_id=current_user["user_id"],
+            action="update_exception",
+            entity_type="exception",
+            entity_id=exc.exception_id,
+            detail={"sub_type": sub_type, "severity_before": severity_before, "severity_after": severity},
+        )
+    )
+    db.commit()
+    db.refresh(exc)
+    return exc
+
+
+@router.delete("/{exception_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_exception(
+    exception_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Xoá mềm 1 ngoại lệ nhập nhầm (việc 5). Chỉ khi CHƯA resolved."""
+    exc = _load_editable_exception(exception_id, current_user, db)
+
+    exc.deleted_at = datetime.now(timezone.utc)
+    # Job/phương án còn dở của ngoại lệ vừa xoá là rác — huỷ luôn, tránh
+    # worker chạy tiếp rồi ghi phương án cho 1 ngoại lệ không còn tồn tại.
+    db.execute(
+        update(BackgroundJob)
+        .where(BackgroundJob.exception_id == exc.exception_id, BackgroundJob.status.in_(("pending", "running")))
+        .values(status="failed", error="Ngoại lệ đã bị xoá")
+    )
+
+    db.add(
+        AuditLog(
+            company_id=current_user["company_id"],
+            user_id=current_user["user_id"],
+            action="delete_exception",
+            entity_type="exception",
+            entity_id=exc.exception_id,
+            detail={"sub_type": exc.sub_type, "severity": exc.severity},
+        )
+    )
+    db.commit()
+    return None

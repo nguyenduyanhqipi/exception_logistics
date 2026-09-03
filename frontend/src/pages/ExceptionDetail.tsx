@@ -6,6 +6,7 @@ import type { ExceptionDetail as ExceptionDetailType } from "../api/types";
 import { usePolling } from "../hooks/usePolling";
 import { OptionList } from "../components/OptionList";
 import { OutcomeForm } from "../components/OutcomeForm";
+import { ExceptionActionsMenu } from "../components/ExceptionActionsMenu";
 import { subTypeLabel } from "../labels";
 
 export function ExceptionDetail() {
@@ -54,8 +55,16 @@ export function ExceptionDetail() {
 
   return (
     <div className="page">
-      <h1>
-        Ngoại lệ: {subTypeLabel(data.sub_type)} — Xe {data.vehicle_id ?? "-"}
+      <h1 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span>
+          Ngoại lệ: {subTypeLabel(data.sub_type)} — Xe {data.vehicle_id ?? "-"}
+        </span>
+        <ExceptionActionsMenu
+          exceptionId={exceptionId!}
+          status={data.status}
+          subTypeLabel={subTypeLabel(data.sub_type)}
+          onDeleted={() => navigate("/")}
+        />
       </h1>
 
       {error && <div className="error-banner">{error}</div>}

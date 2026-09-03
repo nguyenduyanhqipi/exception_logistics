@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 interface Vehicle {
   vehicle_id: string;
@@ -80,6 +81,7 @@ export function ScheduleInput() {
   return (
     <div className="page">
       <h1>Nhập kế hoạch chuyến mới</h1>
+      <DeleteScheduleByShift />
       <form onSubmit={handleSubmit} className="card">
         {error && <div className="error-banner">{error}</div>}
 
@@ -192,6 +194,97 @@ export function ScheduleInput() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+
+const SHIFT_OPTIONS = [
+  { value: "ca_sang", label: "Ca sáng" },
+  { value: "ca_chieu", label: "Ca chiều" },
+  { value: "ca_dem", label: "Ca đêm" },
+];
+
+/** Xoá TOÀN BỘ kế hoạch của 1 ngày + 1 ca (việc 4).
+ *
+ * Backend (`DELETE /api/schedules?shift_date=&shift_label=`) chặn nếu còn
+ * ngoại lệ trỏ tới bất kỳ chuyến nào trong nhóm — thông báo lỗi 409 trả về đã
+ * ghi rõ số lượng và cách xử lý, hiển thị nguyên văn cho người dùng.
+ */
+function DeleteScheduleByShift() {
+  const queryClient = useQueryClient();
+  const [shiftDate, setShiftDate] = useState("");
+  const [shiftLabel, setShiftLabel] = useState("ca_sang");
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  const shiftText = SHIFT_OPTIONS.find((o) => o.value === shiftLabel)?.label ?? shiftLabel;
+
+  async function handleDelete() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await apiClient.delete("/api/schedules", {
+        params: { shift_date: shiftDate, shift_label: shiftLabel },
+      });
+      setConfirming(false);
+      const vehicles: string[] = res.data.vehicles ?? [];
+      setResult(
+        `Đã xoá ${res.data.deleted} chuyến của ngày ${shiftDate} ${shiftText}` +
+          (vehicles.length > 0 ? ` (xe: ${vehicles.join(", ")}).` : "."),
+      );
+      queryClient.invalidateQueries({ queryKey: ["schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-today"] });
+    } catch (err) {
+      setConfirming(false);
+      setError(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2 style={{ marginTop: 0 }}>Xoá kế hoạch theo ngày + ca</h2>
+      <p className="drill-muted" style={{ marginTop: 0 }}>
+        Xoá toàn bộ chuyến của mọi xe trong đúng ngày và ca đã chọn. Không xoá được nếu còn ngoại lệ đang gắn với
+        các chuyến đó.
+      </p>
+      {error && <div className="error-banner">{error}</div>}
+      {result && <div className="success-banner">{result}</div>}
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div className="form-field" style={{ flex: "1 1 180px", marginBottom: 0 }}>
+          <label>Ngày cần xoá</label>
+          <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} />
+        </div>
+        <div className="form-field" style={{ flex: "1 1 160px", marginBottom: 0 }}>
+          <label>Ca</label>
+          <select value={shiftLabel} onChange={(e) => setShiftLabel(e.target.value)}>
+            {SHIFT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button type="button" className="danger" disabled={!shiftDate || busy} onClick={() => setConfirming(true)}>
+          Xoá kế hoạch
+        </button>
+      </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Xoá kế hoạch?"
+          message={`Toàn bộ chuyến của MỌI XE trong ngày ${shiftDate} — ${shiftText} sẽ bị xoá khỏi hệ thống (xoá mềm). Bạn có chắc không?`}
+          confirmLabel="Có, xoá"
+          busy={busy}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }

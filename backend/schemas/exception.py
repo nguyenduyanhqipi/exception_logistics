@@ -39,6 +39,39 @@ class ExceptionCreate(BaseModel):
     customer_accepted_delay_min: Optional[int] = None
 
 
+class ExceptionUpdate(BaseModel):
+    """Sửa lại 1 ngoại lệ đã tạo (việc 5, 2026-09-04).
+
+    CÙNG bộ field đầu vào như `ExceptionCreate` TRỪ `schedule_id` — sửa ngoại
+    lệ sang chuyến khác không phải "sửa thông tin nhập sai" mà là ngoại lệ
+    khác hẳn, xoá cái cũ rồi tạo mới mới đúng. Sau khi sửa, backend chạy lại
+    y hệt luồng lúc tạo (classify_sub_type -> analyze_impact ->
+    calculate_severity) rồi sinh job phân tích AI mới.
+    """
+
+    exception_group: str
+    answer_key: str
+    depot_on_time: Optional[bool] = None
+    has_injury: Optional[bool] = None
+    area: Optional[str] = None
+    description: Optional[str] = None
+
+    from_stop_order: int = 1
+    to_stop_order: Optional[int] = None
+    delay_minutes: int = 0
+
+    departure_delay_min: Optional[int] = None
+    driver_contact_lost_min: Optional[int] = None
+    estimated_traffic_duration_min: Optional[int] = None
+    is_repeat_delivery: Optional[bool] = None
+    new_address_distance_km: Optional[float] = None
+    has_time_conflict: Optional[bool] = None
+    new_location_distance_km: Optional[float] = None
+    estimated_repair_min: Optional[int] = None
+
+    customer_accepted_delay_min: Optional[int] = None
+
+
 class ManualOptionCreate(BaseModel):
     description: str = Field(min_length=1)
     cost_estimate: Optional[Decimal] = None
@@ -56,6 +89,8 @@ class ExceptionResponse(BaseModel):
     area: Optional[str]
     description: Optional[str]
     customer_accepted_delay_min: Optional[int] = None
+    # Tín hiệu định lượng đã nhập lúc tạo/sửa — form sửa nạp lại từ đây.
+    input_context: Optional[dict] = None
     status: str
 
     model_config = {"from_attributes": True}

@@ -2,14 +2,14 @@ import uuid
 from collections import OrderedDict
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.excel_parser import ExcelValidationError, parse_schedule_sheet
 from middleware.auth import get_current_user
 from middleware.tenant import get_db
-from models import Schedule, Vehicle
+from models import Exception_, Schedule, Vehicle
 from schemas.schedule import ScheduleCreate, ScheduleCreateBody, ScheduleResponse, StopCreate
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
@@ -217,6 +217,92 @@ async def upload_schedules(
     return {"created": created, "updated": updated, "trips": len(groups), "total_stops": len(rows)}
 
 
+def _assert_no_blocking_exceptions(db: Session, schedules: list[Schedule]) -> None:
+    """Chặn xoá kế hoạch khi còn ngoại lệ trỏ tới nó (việc 4, 2026-09-04).
+
+    `exceptions.schedule_id` là FK NOT NULL — xoá mềm chuyến mà vẫn còn ngoại
+    lệ tham chiếu sẽ để lại ngoại lệ (và cả impact_analysis/decision/outcome
+    nuôi KPI) treo vào một chuyến "không còn tồn tại" theo UI, dữ liệu không
+    còn đọc lại được đúng.
+
+    Đếm MỌI ngoại lệ chưa bị xoá mềm (`deleted_at IS NULL`), kể cả đã
+    `resolved` — ngoại lệ resolved chính là bản ghi KPI đã chốt, càng không
+    được để mồ côi. Thông báo tách riêng 2 nhóm để người dùng biết cần làm gì
+    với từng nhóm.
+    """
+    if not schedules:
+        return
+    schedule_ids = [s.schedule_id for s in schedules]
+    blocking = db.execute(
+        select(Exception_).where(
+            Exception_.schedule_id.in_(schedule_ids),
+            Exception_.deleted_at.is_(None),
+        )
+    ).scalars().all()
+    if not blocking:
+        return
+
+    resolved = [e for e in blocking if e.status == "resolved"]
+    open_ = [e for e in blocking if e.status != "resolved"]
+    parts = []
+    if open_:
+        parts.append(f"{len(open_)} ngoại lệ chưa xử lý xong — hãy xử lý (xác nhận phương án) hoặc xoá chúng trước")
+    if resolved:
+        parts.append(
+            f"{len(resolved)} ngoại lệ đã xử lý xong (resolved) — đây là dữ liệu KPI đã chốt, "
+            "không xoá được, nên kế hoạch này phải giữ lại"
+        )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"Không xoá được kế hoạch: còn {len(blocking)} ngoại lệ đang tham chiếu tới. " + "; ".join(parts) + ".",
+    )
+
+
+@router.delete("", status_code=status.HTTP_200_OK)
+def delete_schedules_by_shift(
+    shift_date: date = Query(..., description="Ngày chạy cần xoá (YYYY-MM-DD)"),
+    shift_label: str = Query(..., description="Ca cần xoá: ca_sang / ca_chieu / ca_dem"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Xoá mềm TOÀN BỘ kế hoạch của 1 ngày + 1 ca (mọi xe, mọi trip_sequence).
+
+    `get_db` đã lọc theo company_id nên chỉ chạm dữ liệu của công ty đang đăng
+    nhập. Dùng chung guard với xoá lẻ 1 chuyến (`_assert_no_blocking_exceptions`).
+    """
+    if shift_label not in ("ca_sang", "ca_chieu", "ca_dem"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ca chỉ nhận 'ca_sang', 'ca_chieu' hoặc 'ca_dem'",
+        )
+
+    schedules = db.execute(
+        select(Schedule).where(
+            Schedule.shift_date == shift_date,
+            Schedule.shift_label == shift_label,
+            Schedule.deleted_at.is_(None),
+        )
+    ).scalars().all()
+    if not schedules:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không có kế hoạch nào cho ngày {shift_date} ca {shift_label}",
+        )
+
+    _assert_no_blocking_exceptions(db, schedules)
+
+    now = datetime.now(timezone.utc)
+    for s in schedules:
+        s.deleted_at = now
+    db.commit()
+    return {
+        "deleted": len(schedules),
+        "vehicles": sorted({s.vehicle_id for s in schedules}),
+        "shift_date": shift_date.isoformat(),
+        "shift_label": shift_label,
+    }
+
+
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_schedule(
     schedule_id: str,
@@ -226,6 +312,10 @@ def delete_schedule(
     schedule = db.get(Schedule, schedule_id)
     if schedule is None or str(schedule.company_id) != current_user["company_id"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy chuyến {schedule_id}")
+
+    # Trước đây xoá thẳng, không kiểm tra gì — ngoại lệ đang trỏ tới chuyến này
+    # bị bỏ mồ côi trong im lặng. Nay dùng chung guard với xoá theo ngày/ca.
+    _assert_no_blocking_exceptions(db, [schedule])
 
     schedule.deleted_at = datetime.now(timezone.utc)
     db.commit()

@@ -16,6 +16,13 @@ export interface Stop {
   volume_kg?: number | null;
   cargo_type?: string | null;
   notes?: string | null;
+  // Các field còn lại của stop trong JSONB — form sửa đơn hàng phải gửi lại
+  // ĐỦ mọi field vì backend (api/schedules.py::add_or_update_stop) dựng lại
+  // stop từ payload, field nào không gửi coi như bị xoá.
+  loading_duration_min?: number | null;
+  sla_penalty?: number | null;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface Vehicle {
@@ -50,6 +57,10 @@ export interface ExceptionSummary {
   area: string | null;
   description: string | null;
   status: ExceptionStatus;
+  customer_accepted_delay_min?: number | null;
+  // Tín hiệu định lượng đã nhập lúc tạo/sửa — form sửa nạp lại từ đây.
+  // null với ngoại lệ tạo trước migration f5a6b7c8d9e0.
+  input_context?: Record<string, unknown> | null;
 }
 
 export interface AffectedStop {

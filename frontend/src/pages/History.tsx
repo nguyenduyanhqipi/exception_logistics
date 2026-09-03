@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "../api/client";
+import { ExceptionActionsMenu } from "../components/ExceptionActionsMenu";
 import type { ExceptionSummary } from "../api/types";
 import { subTypeLabel } from "../labels";
 
@@ -68,6 +69,7 @@ export function History() {
                 <th>Mức độ</th>
                 <th>Trạng thái</th>
                 <th>Nhóm</th>
+                <th style={{ width: 90 }}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -85,6 +87,17 @@ export function History() {
                     <span className={`badge badge-${exc.status}`}>{STATUS_LABEL[exc.status]}</span>
                   </td>
                   <td>{exc.group_id ? "Nhóm ghép" : "-"}</td>
+                  <td>
+                    {/* Menu sửa/xoá tự ẩn với ngoại lệ đã resolved (dữ liệu KPI
+                        đã chốt) — trang này theo định nghĩa chỉ chứa resolved
+                        nên thực tế luôn hiện dòng chú thích bên dưới. */}
+                    <ExceptionActionsMenu
+                      exceptionId={exc.exception_id}
+                      status={exc.status}
+                      subTypeLabel={subTypeLabel(exc.sub_type)}
+                    />
+                    {exc.status === "resolved" && <span className="drill-muted">Đã chốt</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>

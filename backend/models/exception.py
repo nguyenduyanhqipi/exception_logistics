@@ -34,6 +34,12 @@ class Exception_(Base):
     # Optional, hỏi 2 bước ở NewException.tsx — chỉ tác động ranker.py (mục
     # F), TUYỆT ĐỐI không đọc ở impact_analyzer/sla_breach (KPI thật).
     customer_accepted_delay_min = Column(Integer, nullable=True)
+    # Tín hiệu định lượng dispatcher nhập lúc tạo (answer_key +
+    # departure_delay_min/has_injury/...). rule_engine chỉ trả ra `severity`
+    # rồi bỏ các tín hiệu này, nên phải giữ lại nguyên bản để form SỬA ngoại
+    # lệ nạp lại được — nếu không, sửa mỗi `description` cũng làm severity
+    # tính lại thiếu tín hiệu gốc và tụt mức (xem migration f5a6b7c8d9e0).
+    input_context = Column(JSONB, nullable=True)
     status = Column(Text, nullable=False, server_default="pending")
     reported_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
     reported_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

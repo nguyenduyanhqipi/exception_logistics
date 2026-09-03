@@ -9,6 +9,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { History } from "./pages/History";
 import { NewException } from "./pages/NewException";
 import { ExceptionDetail } from "./pages/ExceptionDetail";
+import { EditException } from "./pages/EditException";
 import { ExceptionGroup } from "./pages/ExceptionGroup";
 import { ManagerDashboard } from "./pages/ManagerDashboard";
 import { Settings } from "./pages/Settings";
@@ -49,6 +50,7 @@ function App() {
               <Route path="/history" element={<History />} />
               <Route path="/exceptions/new" element={<NewException />} />
               <Route path="/exceptions/:exceptionId" element={<ExceptionDetail />} />
+              <Route path="/exceptions/:exceptionId/edit" element={<EditException />} />
               <Route path="/exception-groups/:groupId" element={<ExceptionGroup />} />
               <Route path="/schedules/new" element={<ScheduleInput />} />
               <Route path="/excel-upload" element={<ExcelUpload />} />

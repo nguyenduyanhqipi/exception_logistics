@@ -21,6 +21,13 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/exception_logistics
+      # Giờ địa phương của nghiệp vụ (mục 4: companies.timezone). `stops[].eta`
+      # / `sla_deadline` là giờ tường (naive) theo giờ VN, và severity/impact
+      # so chúng với `datetime.now()` naive — container chạy UTC làm lệch 7
+      # tiếng theo hướng "mọi thứ trông như chưa tới giờ". Các mốc tuyệt đối
+      # (JWT, quota LLM, RAG) đều dùng datetime.now(timezone.utc) nên KHÔNG bị
+      # biến này ảnh hưởng.
+      TZ: Asia/Ho_Chi_Minh
     depends_on:
       db:
         condition: service_healthy
@@ -31,6 +38,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/exception_logistics
+      TZ: Asia/Ho_Chi_Minh
     depends_on:
       db:
         condition: service_healthy

@@ -106,3 +106,55 @@ table.list-table tr:hover { background: #f9fafb; cursor: pointer; }
 }
 .drill-exc-chip:hover { text-decoration: underline; }
 .drill-quick-btn { padding: 5px 10px; font-size: 12.5px; }
+
+/* Ô tìm kiếm Dashboard (việc 3) */
+.search-bar { display: flex; gap: 10px; margin-bottom: 12px; }
+.search-bar input {
+  flex: 1; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;
+}
+.search-bar input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+
+/* Nút hành động phá huỷ (xoá kế hoạch / xoá ngoại lệ) */
+button.danger {
+  background: #dc2626; color: white; border: none; padding: 9px 18px;
+  border-radius: 6px; font-size: 14px; cursor: pointer;
+}
+button.danger:hover { background: #b91c1c; }
+button.danger:disabled { background: #fca5a5; cursor: not-allowed; }
+
+/* Menu 3 chấm trên từng dòng (việc 5) */
+.row-menu { position: relative; display: inline-flex; align-items: center; }
+.row-menu-trigger {
+  background: none; border: none; cursor: pointer; color: #6b7280;
+  font-size: 17px; line-height: 1; padding: 2px 6px; border-radius: 4px;
+}
+.row-menu-trigger:hover { background: #e5e7eb; color: #111827; }
+.row-menu-list {
+  position: absolute; top: 100%; right: 0; z-index: 20; min-width: 120px;
+  background: white; border: 1px solid #e5e7eb; border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12); padding: 4px; display: flex; flex-direction: column;
+}
+.row-menu-list button {
+  background: none; border: none; text-align: left; padding: 7px 10px;
+  font-size: 13.5px; cursor: pointer; border-radius: 4px; color: #1f2937;
+}
+.row-menu-list button:hover { background: #f3f4f6; }
+.row-menu-list button.row-menu-danger { color: #b91c1c; }
+.row-menu-error { color: #991b1b; font-size: 12px; margin-left: 6px; }
+
+/* Popup xác nhận Có/Không */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal-box {
+  background: white; border-radius: 10px; padding: 20px 22px; max-width: 460px; width: 100%;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+}
+.modal-title { margin: 0 0 8px; font-size: 17px; }
+.modal-message { margin: 0 0 18px; font-size: 14px; color: #4b5563; line-height: 1.5; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Form sửa 1 đơn hàng ngay trong drill-down (việc 2) */
+.drill-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 16px; }
+.drill-exc-row { display: inline-flex; align-items: center; gap: 2px; }
