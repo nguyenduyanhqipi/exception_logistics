@@ -11,7 +11,7 @@ from models.exception import (
 )
 from models.option import Option
 from models.decision import Decision, Outcome
-from models.embedding import ExceptionEmbedding
+from models.rag import RagCaseBank, RagCaseSourceMap, RagTraceRequest
 from models.prompt import PromptVersion, RuleVersion
 from models.system import (
     LLMUsageLog,
@@ -33,7 +33,9 @@ __all__ = [
     "Option",
     "Decision",
     "Outcome",
-    "ExceptionEmbedding",
+    "RagCaseBank",
+    "RagCaseSourceMap",
+    "RagTraceRequest",
     "PromptVersion",
     "RuleVersion",
     "LLMUsageLog",

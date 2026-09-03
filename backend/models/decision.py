@@ -27,3 +27,9 @@ class Outcome(Base):
     notes = Column(Text, nullable=True)
     recorded_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
     recorded_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    # Mục 20.2 — NULL = chưa nạp vào rag_case_bank. Không phải trong schema
+    # gốc của mục 20, thêm để pipeline biết case nào đã nạp rồi mà KHÔNG cần
+    # tra ngược rag_case_source_map (map đã mã hoá, không query được theo
+    # exception_id thật) — plaintext cột này chỉ nói "đã nạp hay chưa", không
+    # tiết lộ case_id/nội dung case tương ứng.
+    admitted_to_rag_at = Column(DateTime(timezone=True), nullable=True)

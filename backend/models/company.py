@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Numeric, Text, text
+from sqlalchemy import Boolean, Column, DateTime, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -18,4 +18,7 @@ class Company(Base):
     default_depot_address = Column(Text, nullable=True)
     default_depot_area = Column(Text, nullable=True)
     default_cost_per_km = Column(Numeric, nullable=False, server_default="8000")
+    # Mục 20 — opt-in (mặc định false), KHÔNG opt-out: company chưa bật thì
+    # option_generator KHÔNG được truy vấn rag_case_bank cho company đó.
+    rag_data_sharing_consent = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
