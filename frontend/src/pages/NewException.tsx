@@ -113,6 +113,11 @@ export function NewException() {
   const [delayMinutes, setDelayMinutes] = useState("0");
   const [area, setArea] = useState("");
   const [description, setDescription] = useState("");
+  // Mục F — khách chấp nhận trễ hơn SLA bao nhiêu (hỏi 2 bước, optional). CHỈ
+  // tác động ranker.py, KHÔNG đụng impact_analysis/sla_breach thật (xem
+  // backend/core/ranker.py::_apply_customer_tolerance).
+  const [customerAcceptedDelayAnswer, setCustomerAcceptedDelayAnswer] = useState<"" | "yes" | "no" | "unknown">("");
+  const [customerAcceptedDelayMinInput, setCustomerAcceptedDelayMinInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -121,6 +126,10 @@ export function NewException() {
   const extraField = subType ? EXTRA_FIELD[subType] : null;
   const showDepotFollowUp = subType === "late_departure" && !!schedule?.planned_departure_time;
   const showInjuryFollowUp = subType === "accident";
+  // Chỉ nhóm ngoại lệ có khả năng gây TRỄ mới cần hỏi khách có chấp nhận trễ
+  // không — customer_reject/customer_change là vấn đề tại điểm giao/đổi yêu
+  // cầu, không phải trễ tiến độ, hỏi câu này ở đó không có ý nghĩa.
+  const showCustomerDelayTolerance = group === "delay" || group === "road_block" || group === "vehicle_issue";
 
   function resetGroupChoice(newGroup: string) {
     setGroup(newGroup);
@@ -128,6 +137,8 @@ export function NewException() {
     setDepotOnTime(null);
     setHasInjury(null);
     setExtraValue("");
+    setCustomerAcceptedDelayAnswer("");
+    setCustomerAcceptedDelayMinInput("");
     // customer_reject/customer_change chỉ ảnh hưởng ĐÚNG 1 điểm giao theo
     // đúng thiết kế impact_analyzer.py (to_stop_order = from_stop_order),
     // KHÔNG lan cả tuyến như delay/road_block/vehicle_issue — tự đặt lại để
@@ -156,6 +167,9 @@ export function NewException() {
       if (hasInjury !== null) payload.has_injury = hasInjury;
       if (extraField && extraValue !== "") {
         payload[extraField.key] = extraField.type === "boolean" ? extraValue === "true" : Number(extraValue);
+      }
+      if (showCustomerDelayTolerance && customerAcceptedDelayAnswer === "yes" && customerAcceptedDelayMinInput !== "") {
+        payload.customer_accepted_delay_min = Number(customerAcceptedDelayMinInput) || 0;
       }
 
       const res = await apiClient.post("/api/exceptions", payload);
@@ -375,6 +389,56 @@ export function NewException() {
               )}
             </div>
           </>
+        )}
+
+        {showCustomerDelayTolerance && (
+          <div className="form-field">
+            <label>Khách có thể chấp nhận trễ hơn SLA không?</label>
+            <div className="radio-group">
+              <label className={`radio-option ${customerAcceptedDelayAnswer === "yes" ? "selected" : ""}`}>
+                <input
+                  type="radio"
+                  checked={customerAcceptedDelayAnswer === "yes"}
+                  onChange={() => setCustomerAcceptedDelayAnswer("yes")}
+                />
+                Có
+              </label>
+              <label className={`radio-option ${customerAcceptedDelayAnswer === "no" ? "selected" : ""}`}>
+                <input
+                  type="radio"
+                  checked={customerAcceptedDelayAnswer === "no"}
+                  onChange={() => {
+                    setCustomerAcceptedDelayAnswer("no");
+                    setCustomerAcceptedDelayMinInput("");
+                  }}
+                />
+                Không
+              </label>
+              <label className={`radio-option ${customerAcceptedDelayAnswer === "unknown" ? "selected" : ""}`}>
+                <input
+                  type="radio"
+                  checked={customerAcceptedDelayAnswer === "unknown"}
+                  onChange={() => {
+                    setCustomerAcceptedDelayAnswer("unknown");
+                    setCustomerAcceptedDelayMinInput("");
+                  }}
+                />
+                Không rõ
+              </label>
+            </div>
+            {customerAcceptedDelayAnswer === "yes" && (
+              <div style={{ marginTop: 10 }}>
+                <label>Khách chấp nhận trễ tối đa bao nhiêu phút so với SLA?</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={customerAcceptedDelayMinInput}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setCustomerAcceptedDelayMinInput(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
         )}
 
         <div className="form-field">

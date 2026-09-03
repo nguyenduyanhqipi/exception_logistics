@@ -84,6 +84,11 @@ def build_context(db: Session, exception: Exception_) -> dict:
             "description": exception.description,
             "vehicle_id": exception.vehicle_id,
             "area": exception.area,
+            # Mục F — chỉ để LLM viết rationale/explanation phù hợp hơn (vd
+            # không đề xuất phương án đắt tiền để né 1 rủi ro SLA khách đã
+            # chấp nhận); KHÔNG dùng field này ở bất kỳ đâu khác trong
+            # build_context (ranking thật nằm ở ranker.py, không phải ở đây).
+            "customer_accepted_delay_min": exception.customer_accepted_delay_min,
         },
         "vehicle": {
             "driver_name": vehicle.driver_name if vehicle else None,

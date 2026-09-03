@@ -22,8 +22,27 @@ def _min_max_normalize(values: list[float]) -> list[float]:
     return [(v - lo) / (hi - lo) for v in values]
 
 
-def calculate_scores(options: list[Option], weights: dict) -> list[float]:
+def _apply_customer_tolerance(weights: dict, customer_tolerant: bool) -> dict:
+    """Mục F (2026-09-03): khi khách đã CHỦ ĐỘNG chấp nhận đúng mức trễ tình
+    huống này gây ra (`customer_accepted_delay_min` >= trễ ước tính thật —
+    xem job_processor.py::_customer_tolerant_of_delay), rủi ro SLA bớt đáng lo
+    vì khách đã đồng ý từ trước — dồn nửa trọng số `sla_risk` sang `cost`, ưu
+    tiên phương án rẻ hơn thay vì tốn thêm để né 1 rủi ro khách không còn
+    quan tâm. Chỉ đổi weights DÙNG TẠM cho lần rank này, không ghi đè
+    `company.ranking_weights` gốc. Ranh giới bắt buộc: hàm này KHÔNG được và
+    KHÔNG hề đụng tới `impact_analysis`/cờ `sla_breach` thật — số liệu đó nuôi
+    KPI thật (on_time_rate ở ManagerDashboard), badge "Vi phạm SLA?" ở
+    ExceptionDetail luôn phải đúng thực tế hợp đồng bất kể khách thông cảm
+    hay không; chỉ THỨ TỰ ưu tiên phương án bị đổi."""
+    if not customer_tolerant:
+        return weights
+    shifted = weights["sla_risk"] / 2
+    return {"cost": weights["cost"] + shifted, "time": weights["time"], "sla_risk": weights["sla_risk"] - shifted}
+
+
+def calculate_scores(options: list[Option], weights: dict, customer_tolerant: bool = False) -> list[float]:
     """Trả về list điểm số (0-1, cao hơn = tốt hơn), CÙNG THỨ TỰ với `options`."""
+    weights = _apply_customer_tolerance(weights, customer_tolerant)
     costs = [float(o.cost_estimate or 0) for o in options]
     times = [float(o.time_estimate_minutes or 0) for o in options]
     slas = [float(o.sla_risk_remaining or 0) for o in options]
@@ -40,13 +59,13 @@ def calculate_scores(options: list[Option], weights: dict) -> list[float]:
     ]
 
 
-def rank_options(db: Session, options: list[Option], weights: dict) -> list[Option]:
+def rank_options(db: Session, options: list[Option], weights: dict, customer_tolerant: bool = False) -> list[Option]:
     """Tính điểm + gán `score`/`rank` cho từng option (rank 1 = tốt nhất).
     Không tự commit — caller (job_processor) chịu trách nhiệm."""
     if not options:
         return options
 
-    scores = calculate_scores(options, weights)
+    scores = calculate_scores(options, weights, customer_tolerant=customer_tolerant)
     order = sorted(range(len(options)), key=lambda i: scores[i], reverse=True)
     for rank, idx in enumerate(order, start=1):
         options[idx].score = Decimal(str(round(scores[idx], 4)))

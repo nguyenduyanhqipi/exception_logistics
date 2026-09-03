@@ -129,6 +129,7 @@ def create_exception(
         vehicle_id=schedule.vehicle_id,
         area=payload.area,
         description=" | ".join(description_parts) if description_parts else None,
+        customer_accepted_delay_min=payload.customer_accepted_delay_min,
         status="pending",
         reported_by=current_user["user_id"],
         reported_at=reported_at,

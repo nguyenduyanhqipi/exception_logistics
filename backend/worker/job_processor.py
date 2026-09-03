@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import BackgroundJob, Company, Exception_, ExceptionGroup, Option
+from models import BackgroundJob, Company, Exception_, ExceptionGroup, ImpactAnalysis, Option
 from core.option_generator import QuotaExceededError, generate_options_for_exception, generate_options_for_group
 from core.ranker import rank_options
 
@@ -78,6 +78,22 @@ def _company_ranking_weights(db: Session, company_id) -> dict:
     return DEFAULT_RANKING_WEIGHTS
 
 
+def _customer_tolerant_of_delay(db: Session, exc: Exception_) -> bool:
+    """Mục F: True nếu dispatcher đã ghi nhận khách chấp nhận trễ tối đa N
+    phút VÀ mức trễ thật sự ước tính (impact_analysis, tính bằng rule engine
+    lúc tạo exception, KHÔNG đổi bởi field này) nằm trong N phút đó. Chỉ đọc
+    impact_analysis để SO SÁNH — không ghi/sửa gì vào đó."""
+    if exc.customer_accepted_delay_min is None:
+        return False
+    impact = db.execute(
+        select(ImpactAnalysis).where(ImpactAnalysis.exception_id == exc.exception_id)
+    ).scalar_one_or_none()
+    if impact is None or not impact.affected_stops:
+        return False
+    max_delay = max((s.get("delay_minutes") or 0) for s in impact.affected_stops)
+    return max_delay <= exc.customer_accepted_delay_min
+
+
 def _process_job(db: Session, job: BackgroundJob):
     job.status = "running"
     job.started_at = datetime.now(timezone.utc)
@@ -96,7 +112,10 @@ def _process_job(db: Session, job: BackgroundJob):
             else:
                 llm_error = llm_error or usage.get("error") or "LLM không sinh được phương án hợp lệ"
                 created = _persist_manual_fallback_option(db, exception_id=exc.exception_id)
-            rank_options(db, created, _company_ranking_weights(db, exc.company_id))
+            rank_options(
+                db, created, _company_ranking_weights(db, exc.company_id),
+                customer_tolerant=_customer_tolerant_of_delay(db, exc),
+            )
 
         elif job.job_type == "analyze_group":
             exc = db.get(Exception_, job.exception_id)
@@ -110,6 +129,12 @@ def _process_job(db: Session, job: BackgroundJob):
             else:
                 llm_error = llm_error or usage.get("error") or "LLM không sinh được phương án hợp lệ"
                 created = _persist_manual_fallback_option(db, group_id=group.group_id)
+            # Mục F (customer_accepted_delay_min) CHƯA áp dụng ở combined mode
+            # — 1 nhóm có thể gồm nhiều exception với mức khách chấp nhận khác
+            # nhau (hoặc không có), gộp chúng lại thành 1 quyết định "khoan
+            # dung" duy nhất cho cả nhóm cần quy tắc riêng, ngoài phạm vi hiện
+            # tại. `customer_tolerant` mặc định False -> weights gốc, đúng
+            # hành vi trước khi có mục F.
             rank_options(db, created, _company_ranking_weights(db, group.company_id))
             # 1 quyết định phối hợp cho combined mode (mục 5.3, 10) -> CẢ nhóm
             # thành viên cùng chuyển awaiting_decision, không chỉ exception mà

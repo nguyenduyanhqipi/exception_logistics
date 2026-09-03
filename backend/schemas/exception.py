@@ -33,6 +33,11 @@ class ExceptionCreate(BaseModel):
     new_location_distance_km: Optional[float] = None
     estimated_repair_min: Optional[int] = None
 
+    # Mục F — khách chủ động chấp nhận trễ tối đa bao nhiêu phút so với SLA
+    # gốc (hỏi 2 bước, optional). CHỈ dùng ở ranker.py, KHÔNG ảnh hưởng
+    # impact_analysis/sla_breach thật.
+    customer_accepted_delay_min: Optional[int] = None
+
 
 class ManualOptionCreate(BaseModel):
     description: str = Field(min_length=1)
@@ -50,6 +55,7 @@ class ExceptionResponse(BaseModel):
     vehicle_id: Optional[str]
     area: Optional[str]
     description: Optional[str]
+    customer_accepted_delay_min: Optional[int] = None
     status: str
 
     model_config = {"from_attributes": True}

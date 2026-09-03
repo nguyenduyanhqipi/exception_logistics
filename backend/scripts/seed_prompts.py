@@ -31,6 +31,16 @@ ROLE AND SCOPE
   policies you were not told). Base cost_estimate and time_estimate_minutes on the
   numbers given in CONTEXT and reasonable Vietnamese domestic-logistics norms when a
   number isn't given — but do not present rough estimates as precise facts.
+- CONTEXT.exception.description is a free-text note the dispatcher typed by hand — it
+  may be empty, or contain something operationally relevant (e.g. "khách đang đi công
+  tác, hẹn 15h mai giao lại", "khách đã đồng ý chờ thêm"). Read it and let it inform
+  "rationale"/"explanation" when it changes what a reasonable option looks like (an
+  already-agreed new time, a stated preference, extra context about why the situation
+  happened). Do NOT treat it as a guarantee of customer behavior, a firm commitment, or
+  a substitute for the structured fields already in CONTEXT (has_injury,
+  is_repeat_delivery, customer_accepted_delay_min when present, etc.) — those are what
+  actually drive severity and ranking; description only adds color/nuance to your
+  written explanation, never overrides a structured value that says otherwise.
 
 OUTPUT RULES
 - Respond with ONLY valid JSON. No markdown, no code fences, no text before or after
@@ -279,12 +289,19 @@ group, not just one."""
 
 
 def _upsert(db, sub_type: str, content: str):
+    """Idempotent + hỗ trợ ĐÚNG prompt versioning (mục 9): nếu prompt active
+    hiện có NỘI DUNG GIỐNG HỆT thì bỏ qua (script này chạy lại vô hại). Nếu
+    nội dung khác (vd sửa SYSTEM_PROMPT rồi chạy lại script) -> vô hiệu hoá
+    bản active cũ + tạo bản mới active, GIỮ LẠI lịch sử thay vì ghi đè/xoá."""
     existing = db.execute(
         select(PromptVersion).where(PromptVersion.sub_type == sub_type, PromptVersion.is_active.is_(True))
     ).scalar_one_or_none()
     if existing is not None:
-        print(f"Prompt active cho '{sub_type}' đã tồn tại, bỏ qua.")
-        return
+        if existing.content == content:
+            print(f"Prompt active cho '{sub_type}' không đổi, bỏ qua.")
+            return
+        existing.is_active = False
+        print(f"Prompt '{sub_type}' đổi nội dung -> tạo phiên bản mới, vô hiệu hoá bản cũ.")
     db.add(PromptVersion(sub_type=sub_type, content=content, is_active=True))
     print(f"Seed prompt cho '{sub_type}'.")
 
