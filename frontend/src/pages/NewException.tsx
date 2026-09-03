@@ -75,18 +75,27 @@ const EXTRA_FIELD: Record<string, { key: string; label: string; type: "number" |
 
 export function NewException() {
   const navigate = useNavigate();
-  const { data: schedules } = useQuery({
+  const { data: schedulesRaw } = useQuery({
     queryKey: ["schedules"],
     queryFn: async () => (await apiClient.get<Schedule[]>("/api/schedules")).data,
-    // Chỉ hiện chuyến từ hôm nay trở đi — bảng schedules còn chứa dữ liệu lịch
-    // sử giả (scripts/seed_historical_exceptions.py) để làm phong phú báo cáo
-    // Giai đoạn 9, không phải chuyến đang chạy thật; lẫn vào dropdown này sẽ
-    // làm dispatcher khó tìm đúng chuyến đang cần khai báo ngoại lệ.
-    select: (data: Schedule[]) => {
-      const today = new Date().toISOString().slice(0, 10);
-      return data.filter((s) => s.shift_date >= today);
-    },
   });
+
+  const today = new Date().toISOString().slice(0, 10);
+  // Chỉ hiện chuyến từ hôm nay trở đi — bảng schedules còn chứa dữ liệu lịch
+  // sử giả (scripts/seed_historical_exceptions.py) để làm phong phú báo cáo
+  // Giai đoạn 9, không phải chuyến đang chạy thật; lẫn vào dropdown này sẽ
+  // làm dispatcher khó tìm đúng chuyến đang cần khai báo ngoại lệ.
+  // Nếu lọc theo hôm nay ra rỗng (VD: dữ liệu demo seed từ hôm trước chưa
+  // được refresh), fallback về ngày gần nhất có chuyến thay vì để dropdown
+  // trống im lặng — kèm cảnh báo rõ ràng cho dispatcher.
+  const { schedules, fallbackDate } = useMemo(() => {
+    if (!schedulesRaw) return { schedules: undefined, fallbackDate: null as string | null };
+    const upcoming = schedulesRaw.filter((s) => s.shift_date >= today);
+    if (upcoming.length > 0) return { schedules: upcoming, fallbackDate: null as string | null };
+    const latestDate = schedulesRaw.reduce((max, s) => (s.shift_date > max ? s.shift_date : max), "");
+    if (!latestDate) return { schedules: [], fallbackDate: null as string | null };
+    return { schedules: schedulesRaw.filter((s) => s.shift_date === latestDate), fallbackDate: latestDate };
+  }, [schedulesRaw, today]);
 
   const [scheduleId, setScheduleId] = useState("");
   const [group, setGroup] = useState("");
@@ -159,6 +168,11 @@ export function NewException() {
       <h1>Nhập ngoại lệ mới</h1>
       <form onSubmit={handleSubmit} className="card">
         {error && <div className="error-banner">{error}</div>}
+        {fallbackDate && (
+          <div className="error-banner">
+            Không có chuyến nào cho hôm nay ({today}). Đang hiển thị chuyến gần nhất: {fallbackDate}.
+          </div>
+        )}
 
         <div className="form-field">
           <label>1. Chọn chuyến</label>
@@ -170,6 +184,9 @@ export function NewException() {
               </option>
             ))}
           </select>
+          {schedules && schedules.length === 0 && (
+            <span className="hint">Hiện không có chuyến nào trong hệ thống. Vui lòng nhập kế hoạch giao hàng trước.</span>
+          )}
         </div>
 
         {schedule && schedule.stops.length > 0 && (

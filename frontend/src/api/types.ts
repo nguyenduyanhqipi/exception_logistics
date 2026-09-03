@@ -18,6 +18,16 @@ export interface Stop {
   notes?: string | null;
 }
 
+export interface Vehicle {
+  vehicle_id: string;
+  driver_name: string;
+  driver_phone: string;
+  max_payload_kg: number;
+  vehicle_type: string | null;
+  cost_per_km: number | null;
+  status: string;
+}
+
 export interface Schedule {
   schedule_id: string;
   vehicle_id: string;

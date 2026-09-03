@@ -1,5 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import axios from "axios";
 import { apiClient } from "../api/client";
+
+function errorMessage(query: UseQueryResult<unknown>): string {
+  if (axios.isAxiosError(query.error) && query.error.response?.status === 403) {
+    return "Bạn không có quyền truy cập báo cáo này.";
+  }
+  return "Không tải được dữ liệu.";
+}
 
 interface KpiResponse {
   total_exceptions: number;
@@ -49,7 +57,7 @@ export function ManagerDashboard() {
       <div className="card">
         <h2>KPI</h2>
         {kpi.isLoading && <div className="loading-spinner">Đang tải...</div>}
-        {kpi.isError && <div className="error-banner">Không tải được KPI.</div>}
+        {kpi.isError && <div className="error-banner">{errorMessage(kpi)}</div>}
         {kpi.data && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16 }}>
             <Stat label="Tổng ngoại lệ" value={kpi.data.total_exceptions} />
@@ -72,6 +80,7 @@ export function ManagerDashboard() {
       <div className="card">
         <h2>Xu hướng ngoại lệ (30 ngày)</h2>
         {trends.isLoading && <div className="loading-spinner">Đang tải...</div>}
+        {trends.isError && <div className="error-banner">{errorMessage(trends)}</div>}
         {trends.data && trends.data.trend.length === 0 && <p style={{ color: "#6b7280" }}>Chưa có dữ liệu.</p>}
         {trends.data && trends.data.trend.length > 0 && (
           <table className="list-table">
@@ -98,6 +107,7 @@ export function ManagerDashboard() {
       <div className="card">
         <h2>So sánh chi phí ước tính vs thực tế</h2>
         {costAccuracy.isLoading && <div className="loading-spinner">Đang tải...</div>}
+        {costAccuracy.isError && <div className="error-banner">{errorMessage(costAccuracy)}</div>}
         {costAccuracy.data && costAccuracy.data.count === 0 && <p style={{ color: "#6b7280" }}>Chưa có dữ liệu.</p>}
         {costAccuracy.data && costAccuracy.data.count > 0 && (
           <>
@@ -129,6 +139,7 @@ export function ManagerDashboard() {
       <div className="card">
         <h2>Chi phí sử dụng AI</h2>
         {llmUsage.isLoading && <div className="loading-spinner">Đang tải...</div>}
+        {llmUsage.isError && <div className="error-banner">{errorMessage(llmUsage)}</div>}
         {llmUsage.data && (
           <>
             <p>

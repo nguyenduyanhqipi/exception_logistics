@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import axios from "axios";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -13,7 +14,21 @@ import { Settings } from "./pages/Settings";
 import { ScheduleInput } from "./pages/ScheduleInput";
 import { ExcelUpload } from "./pages/ExcelUpload";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Lỗi 4xx (vd. 403 không có quyền) là lỗi vĩnh viễn, không phải lỗi
+      // mạng thoáng qua — retry chỉ kéo dài thời gian "Đang tải..." vô ích
+      // trước khi UI báo lỗi cho người dùng.
+      retry: (failureCount, error) => {
+        if (axios.isAxiosError(error) && error.response && error.response.status >= 400 && error.response.status < 500) {
+          return false;
+        }
+        return failureCount < 3;
+      },
+    },
+  },
+});
 
 function App() {
   return (

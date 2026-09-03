@@ -1,6 +1,8 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import axios from "axios";
 import { apiClient } from "../api/client";
+import type { Vehicle } from "../api/types";
 
 type SheetKind = "vehicles" | "schedules";
 
@@ -14,6 +16,7 @@ function extractErrors(err: unknown): string[] {
 }
 
 function UploadPanel({ kind }: { kind: SheetKind }) {
+  const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -33,6 +36,7 @@ function UploadPanel({ kind }: { kind: SheetKind }) {
       const res = await apiClient.post(endpoint, formData, { headers: { "Content-Type": "multipart/form-data" } });
       setResult(res.data);
       setFile(null);
+      if (kind === "vehicles") queryClient.invalidateQueries({ queryKey: ["vehicles"] });
     } catch (err) {
       setErrors(extractErrors(err));
     } finally {
@@ -70,6 +74,50 @@ function UploadPanel({ kind }: { kind: SheetKind }) {
   );
 }
 
+function VehicleList() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["vehicles"],
+    queryFn: async () => (await apiClient.get<Vehicle[]>("/api/vehicles")).data,
+  });
+
+  return (
+    <div className="card">
+      <h2>Danh sách xe hiện có</h2>
+      {isLoading && <div className="loading-spinner">Đang tải...</div>}
+      {isError && <div className="error-banner">Không tải được danh sách xe.</div>}
+      {data && data.length === 0 && <p style={{ color: "#6b7280" }}>Chưa có xe nào.</p>}
+      {data && data.length > 0 && (
+        <table className="list-table">
+          <thead>
+            <tr>
+              <th>Biển số / Mã xe</th>
+              <th>Tài xế</th>
+              <th>SĐT</th>
+              <th>Tải trọng (kg)</th>
+              <th>Loại xe</th>
+              <th>Chi phí/km</th>
+              <th>Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((v) => (
+              <tr key={v.vehicle_id}>
+                <td>{v.vehicle_id}</td>
+                <td>{v.driver_name}</td>
+                <td>{v.driver_phone}</td>
+                <td>{v.max_payload_kg}</td>
+                <td>{v.vehicle_type ?? "-"}</td>
+                <td>{v.cost_per_km !== null ? `${v.cost_per_km.toLocaleString("vi-VN")}đ` : "-"}</td>
+                <td>{v.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export function ExcelUpload() {
   const [tab, setTab] = useState<SheetKind>("vehicles");
 
@@ -85,6 +133,7 @@ export function ExcelUpload() {
         </button>
       </div>
       <UploadPanel key={tab} kind={tab} />
+      {tab === "vehicles" && <VehicleList />}
     </div>
   );
 }
