@@ -8,13 +8,6 @@ import { OptionList } from "../components/OptionList";
 import { OutcomeForm } from "../components/OutcomeForm";
 import { subTypeLabel } from "../labels";
 
-const JOB_STATUS_LABEL: Record<string, string> = {
-  pending: "Đang chờ xử lý...",
-  running: "Đang phân tích...",
-  done: "Đã phân tích xong",
-  failed: "Lỗi khi phân tích",
-};
-
 export function ExceptionGroup() {
   const { groupId } = useParams<{ groupId: string }>();
   const queryClient = useQueryClient();
@@ -77,7 +70,7 @@ export function ExceptionGroup() {
 
       <div className="card">
         <h2>Phương án xử lý phối hợp</h2>
-        {jobActive && <div className="loading-spinner">{JOB_STATUS_LABEL[data.job!.status]} — tự động cập nhật mỗi 2 giây...</div>}
+        {jobActive && <div className="loading-spinner">Đang chờ AI phân tích... (trang tự làm mới)</div>}
         {data.job?.status === "failed" && <div className="error-banner">Job xử lý bị lỗi: {data.job.error}</div>}
         {data.job?.error && data.job.status === "done" && (
           <div className="error-banner">AI không khả dụng lúc phân tích: {data.job.error}. Vui lòng đánh giá và chọn phương án phù hợp.</div>

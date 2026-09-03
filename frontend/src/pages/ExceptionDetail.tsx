@@ -8,13 +8,6 @@ import { OptionList } from "../components/OptionList";
 import { OutcomeForm } from "../components/OutcomeForm";
 import { subTypeLabel } from "../labels";
 
-const JOB_STATUS_LABEL: Record<string, string> = {
-  pending: "Đang chờ xử lý...",
-  running: "Đang phân tích...",
-  done: "Đã phân tích xong",
-  failed: "Lỗi khi phân tích",
-};
-
 export function ExceptionDetail() {
   const { exceptionId } = useParams<{ exceptionId: string }>();
   const navigate = useNavigate();
@@ -91,8 +84,8 @@ export function ExceptionDetail() {
             <thead>
               <tr>
                 <th>Đơn hàng</th>
-                <th>ETA mới</th>
-                <th>Hạn SLA</th>
+                <th>Giờ đến dự kiến mới (ETA)</th>
+                <th>Hạn chót (SLA)</th>
                 <th>Trễ (phút)</th>
                 <th>Vi phạm SLA?</th>
               </tr>
@@ -114,7 +107,7 @@ export function ExceptionDetail() {
 
       <div className="card">
         <h2>Phương án xử lý</h2>
-        {jobActive && <div className="loading-spinner">{JOB_STATUS_LABEL[data.job!.status]} — tự động cập nhật mỗi 2 giây...</div>}
+        {jobActive && <div className="loading-spinner">Đang chờ AI phân tích... (trang tự làm mới)</div>}
         {data.job?.status === "failed" && <div className="error-banner">Job xử lý bị lỗi: {data.job.error}</div>}
         {data.job?.error && data.job.status === "done" && (
           <div className="error-banner">AI không khả dụng lúc phân tích: {data.job.error}. Vui lòng đánh giá và chọn/nhập phương án thủ công bên dưới.</div>

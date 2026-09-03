@@ -26,7 +26,7 @@ const GROUP_QUESTIONS: Record<string, { label: string; question: string; options
   },
   customer_reject: {
     label: "Khách từ chối nhận hàng",
-    question: "Vấn đề tại điểm giao là gì?",
+    question: "Vấn đề tại điểm giao/nhận là gì?",
     options: [
       { key: "khong_co_nguoi_nhan", label: "Không có ai nhận hàng" },
       { key: "tu_choi_nhan_tranh_chap", label: "Khách có mặt nhưng từ chối nhận (tranh chấp hàng/giá/chất lượng)" },
@@ -203,15 +203,15 @@ export function NewException() {
 
         {schedule && schedule.stops.length > 0 && (
           <div className="form-field">
-            <label>Các điểm giao trong chuyến</label>
+            <label>Các điểm giao/nhận trong chuyến</label>
             <table className="stops-mini-table">
               <thead>
                 <tr>
                   <th>#</th>
                   <th>Địa chỉ</th>
                   <th>Đơn hàng</th>
-                  <th>ETA</th>
-                  <th>Hạn SLA</th>
+                  <th>Giờ đến dự kiến (ETA)</th>
+                  <th>Hạn chót (SLA)</th>
                 </tr>
               </thead>
               <tbody>
@@ -334,7 +334,7 @@ export function NewException() {
         {schedule && answerKey && (
           <>
             <div className="form-field">
-              <label>4. Điểm giao bị ảnh hưởng từ</label>
+              <label>4. Điểm giao/nhận bị ảnh hưởng từ</label>
               <select value={fromStopOrder} onChange={(e) => setFromStopOrder(Number(e.target.value))} required>
                 <option value="">-- Chọn điểm --</option>
                 {schedule.stops.map((st) => (
@@ -383,7 +383,12 @@ export function NewException() {
         </div>
         <div className="form-field">
           <label>Ghi chú thêm (không dùng để phân loại)</label>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            placeholder="VD: Khách đang đi công tác, hẹn 15h mai giao lại"
+          />
         </div>
 
         <button type="submit" className="primary" disabled={submitting || !scheduleId || !group || !answerKey || fromStopOrder === ""}>
