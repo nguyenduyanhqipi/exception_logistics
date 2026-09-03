@@ -73,7 +73,14 @@ def geocode(db: Session, address: str) -> "dict | None":
 def distance_matrix(db: Session, origin: str, destination: str) -> "dict | None":
     """Trả `{"distance_km":.., "duration_min":..}` hoặc `None` nếu lỗi — cache
     theo cặp origin+destination (dùng chung `geocode_cache` của `origin`,
-    lưu vào cột `distance_matrix` dạng `{destination_hash: {...}}`)."""
+    lưu vào cột `distance_matrix` dạng `{destination_hash: {...}}`).
+
+    Goong `DistanceMatrix` (khác Google) CHỈ nhận `origins`/`destinations`
+    dạng tọa độ `"lat,lng"`, KHÔNG nhận địa chỉ text tự do như Geocoding API —
+    gọi thẳng bằng text trả về HTTP 400 `{"status":"NOT_FOUND"}` (đã tái hiện
+    + xác nhận bằng key thật, không phải lỗi key/graceful-degradation che
+    giấu bug thật này suốt từ lúc đổi sang Goong). Phải tự `geocode()` cả 2
+    đầu trước, tận dụng luôn cache sẵn có của `geocode()`."""
     origin, destination = origin.strip(), destination.strip()
     if not origin or not destination:
         return None
@@ -89,16 +96,35 @@ def distance_matrix(db: Session, origin: str, destination: str) -> "dict | None"
     if not api_key:
         return None
 
+    origin_coords = geocode(db, origin)
+    dest_coords = geocode(db, destination)
+    if origin_coords is None or dest_coords is None:
+        return None
+    # `geocode()` ở trên có thể vừa TỰ TẠO dòng `geocode_cache` cho `origin`
+    # (nếu trước đó chưa có) — phải lấy lại `cache_row` MỚI, nếu không biến cũ
+    # vẫn là `None` và code bên dưới sẽ cố INSERT thêm 1 dòng trùng
+    # `address_hash` (vỡ ràng buộc UNIQUE) thay vì UPDATE dòng vừa tạo.
+    cache_row = db.execute(select(GeocodeCache).where(GeocodeCache.address_hash == origin_hash)).scalar_one_or_none()
+
     try:
         response = httpx.get(
             DISTANCE_MATRIX_URL,
-            params={"origins": origin, "destinations": destination, "vehicle": "car", "api_key": api_key},
+            params={
+                "origins": f"{origin_coords['lat']},{origin_coords['lng']}",
+                "destinations": f"{dest_coords['lat']},{dest_coords['lng']}",
+                "vehicle": "car",
+                "api_key": api_key,
+            },
             timeout=10.0,
         )
         response.raise_for_status()
         data = response.json()
         element = data["rows"][0]["elements"][0]
-        if data.get("status") != "OK" or element.get("status") != "OK":
+        # Goong (khác Google) KHÔNG trả field "status" ở cấp response cao
+        # nhất — chỉ có ở mỗi `element` — check `data.get("status")` luôn
+        # `None != "OK"` nên trước đây LUÔN return None dù request thành
+        # công thật (bug thật thứ 2 trong hàm này, xác nhận bằng key thật).
+        if element.get("status") != "OK":
             return None
         result = {
             "distance_km": round(element["distance"]["value"] / 1000, 2),
