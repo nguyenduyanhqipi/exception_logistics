@@ -1,5 +1,13 @@
 export type Severity = "warning" | "serious" | "critical";
-export type ExceptionStatus = "pending" | "analyzing" | "awaiting_decision" | "resolved";
+// Vòng đời: pending -> analyzing -> awaiting_decision -> awaiting_outcome ->
+// resolved. "awaiting_outcome" = đã chốt phương án nhưng CHƯA nhập kết quả
+// thực tế; "resolved" = ĐÃ có kết quả (xem backend/api/decisions.py).
+export type ExceptionStatus =
+  | "pending"
+  | "analyzing"
+  | "awaiting_decision"
+  | "awaiting_outcome"
+  | "resolved";
 
 export interface Stop {
   stop_id: string;
@@ -91,22 +99,46 @@ export interface JobInfo {
   error?: string | null;
 }
 
+export interface DecisionInfo {
+  decision_id: string;
+  confirmed_at: string;
+  confirmed_by_name: string | null;
+  override_note: string | null;
+  is_group_decision: boolean;
+  selected_option: OptionItem | null;
+}
+
+export interface OutcomeInfo {
+  outcome_id: string;
+  delivered_on_time: boolean | null;
+  delay_minutes: number | null;
+  actual_cost: number | null;
+  notes: string | null;
+  recorded_at: string;
+  recorded_by_name: string | null;
+}
+
 export interface ExceptionDetail extends ExceptionSummary {
+  reported_at: string | null;
   impact_analysis: {
     affected_stops: AffectedStop[];
     total_cost_estimate: number | null;
   } | null;
   job: JobInfo | null;
   options: OptionItem[];
+  decision: DecisionInfo | null;
+  outcome: OutcomeInfo | null;
 }
 
 export interface ExceptionGroupDetail {
   group_id: string;
   mode: string;
   status: string;
-  exceptions: ExceptionSummary[];
+  exceptions: (ExceptionSummary & { reported_at?: string | null })[];
   options: OptionItem[];
   job: JobInfo | null;
+  decision: DecisionInfo | null;
+  outcome: OutcomeInfo | null;
 }
 
 // --- Dashboard "hoạt động hôm nay" (GET /api/dashboard/today) ---

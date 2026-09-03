@@ -12,14 +12,8 @@ import type {
 } from "../api/types";
 import { ExceptionActionsMenu } from "../components/ExceptionActionsMenu";
 import { subTypeLabel } from "../labels";
+import { EXCEPTION_STATUS_LABEL as STATUS_LABEL, SEVERITY_LABEL } from "../statusLabels";
 
-const SEVERITY_LABEL: Record<string, string> = { warning: "Cảnh báo", serious: "Nghiêm trọng", critical: "Khẩn cấp" };
-const STATUS_LABEL: Record<string, string> = {
-  pending: "Chờ xử lý",
-  analyzing: "Đang phân tích",
-  awaiting_decision: "Chờ xác nhận",
-  resolved: "Đã xử lý",
-};
 const SHIFT_LABEL: Record<string, string> = { ca_sang: "Ca sáng", ca_chieu: "Ca chiều", ca_dem: "Ca đêm" };
 const PRIORITY_LABEL: Record<string, string> = { thuong: "Thường", vip: "VIP", hop_dong_phat: "Hợp đồng phạt" };
 

@@ -5,9 +5,10 @@ import { apiClient, apiErrorMessage } from "../api/client";
 import type { ExceptionDetail as ExceptionDetailType } from "../api/types";
 import { usePolling } from "../hooks/usePolling";
 import { OptionList } from "../components/OptionList";
-import { OutcomeForm } from "../components/OutcomeForm";
+import { ResolutionPanel, formatDateTime } from "../components/ResolutionPanel";
 import { ExceptionActionsMenu } from "../components/ExceptionActionsMenu";
 import { subTypeLabel } from "../labels";
+import { EXCEPTION_STATUS_LABEL, SEVERITY_LABEL } from "../statusLabels";
 
 export function ExceptionDetail() {
   const { exceptionId } = useParams<{ exceptionId: string }>();
@@ -16,7 +17,6 @@ export function ExceptionDetail() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [overrideNote, setOverrideNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [decisionId, setDecisionId] = useState<string | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["exception", exceptionId],
@@ -38,20 +38,24 @@ export function ExceptionDetail() {
     setError(null);
     setConfirming(optionId);
     try {
-      const res = await apiClient.post("/api/decisions", {
+      await apiClient.post("/api/decisions", {
         exception_id: exceptionId,
         selected_option_id: optionId,
         override_note: overrideNote || null,
       });
-      setDecisionId(res.data.decision_id);
-      queryClient.invalidateQueries({ queryKey: ["exception", exceptionId] });
-      refetch();
+      // Xác nhận phương án KHÔNG còn là bước cuối (việc 2, 2026-09-04) — ngoại
+      // lệ chuyển sang "Chưa có kết quả" và về Dashboard; nhập kết quả thực tế
+      // là một lượt riêng, mở lại từ trang chi tiết bất cứ lúc nào.
+      queryClient.invalidateQueries({ queryKey: ["dashboard-today"] });
+      queryClient.invalidateQueries({ queryKey: ["exceptions-history"] });
+      navigate("/");
     } catch (err) {
       setError(apiErrorMessage(err));
-    } finally {
       setConfirming(null);
     }
   }
+
+  const decided = data.status === "awaiting_outcome" || data.status === "resolved";
 
   return (
     <div className="page">
@@ -72,18 +76,25 @@ export function ExceptionDetail() {
       <div className="card">
         <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
           <div>
-            <strong>Mức độ:</strong> {data.severity && <span className={`badge badge-${data.severity}`}>{data.severity}</span>}
+            <strong>Mức độ:</strong>{" "}
+            {data.severity && (
+              <span className={`badge badge-${data.severity}`}>{SEVERITY_LABEL[data.severity] ?? data.severity}</span>
+            )}
           </div>
           <div>
-            <strong>Trạng thái:</strong> <span className={`badge badge-${data.status}`}>{data.status}</span>
+            <strong>Trạng thái:</strong>{" "}
+            <span className={`badge badge-${data.status}`}>
+              {EXCEPTION_STATUS_LABEL[data.status] ?? data.status}
+            </span>
           </div>
           <div>
             <strong>Khu vực:</strong> {data.area ?? "-"}
           </div>
+          <div>
+            <strong>Thời điểm tạo:</strong> {formatDateTime(data.reported_at)}
+          </div>
         </div>
-        {data.description && (
-          <p style={{ marginTop: 10, color: "#4b5563" }}>{data.description}</p>
-        )}
+        {data.description && <p style={{ marginTop: 10, color: "#4b5563" }}>{data.description}</p>}
       </div>
 
       {data.impact_analysis && data.impact_analysis.affected_stops.length > 0 && (
@@ -114,33 +125,42 @@ export function ExceptionDetail() {
         </div>
       )}
 
-      <div className="card">
-        <h2>Phương án xử lý</h2>
-        {jobActive && <div className="loading-spinner">Đang chờ AI phân tích... (trang tự làm mới)</div>}
-        {data.job?.status === "failed" && <div className="error-banner">Job xử lý bị lỗi: {data.job.error}</div>}
-        {data.job?.error && data.job.status === "done" && (
-          <div className="error-banner">AI không khả dụng lúc phân tích: {data.job.error}. Vui lòng đánh giá và chọn/nhập phương án thủ công bên dưới.</div>
-        )}
+      {/* Chưa quyết định -> chọn phương án. Đã quyết định -> ResolutionPanel
+          hiện đầy đủ phương án đã chọn + quyết định + kết quả (việc 3). */}
+      {!decided && (
+        <div className="card">
+          <h2>Phương án xử lý</h2>
+          {jobActive && <div className="loading-spinner">Đang chờ AI phân tích... (trang tự làm mới)</div>}
+          {data.job?.status === "failed" && <div className="error-banner">Job xử lý bị lỗi: {data.job.error}</div>}
+          {data.job?.error && data.job.status === "done" && (
+            <div className="error-banner">
+              AI không khả dụng lúc phân tích: {data.job.error}. Vui lòng đánh giá và chọn/nhập phương án thủ công bên
+              dưới.
+            </div>
+          )}
 
-        {!jobActive && data.status !== "resolved" && (
-          <>
-            <OptionList
-              options={data.options}
-              confirming={confirming}
-              onConfirm={handleConfirm}
-              overrideNote={overrideNote}
-              onOverrideNoteChange={setOverrideNote}
-            />
-            <ManualOptionForm exceptionId={exceptionId!} onAdded={() => refetch()} />
-          </>
-        )}
+          {!jobActive && (
+            <>
+              <OptionList
+                options={data.options}
+                confirming={confirming}
+                onConfirm={handleConfirm}
+                overrideNote={overrideNote}
+                onOverrideNoteChange={setOverrideNote}
+              />
+              <ManualOptionForm exceptionId={exceptionId!} onAdded={() => refetch()} />
+            </>
+          )}
+        </div>
+      )}
 
-        {data.status === "resolved" && (
-          <div className="success-banner">Ngoại lệ đã được xử lý xong.</div>
-        )}
-      </div>
-
-      {decisionId && <OutcomeForm decisionId={decisionId} />}
+      {decided && (
+        <ResolutionPanel
+          decision={data.decision}
+          outcome={data.outcome}
+          invalidateKeys={[["exception", exceptionId], ["dashboard-today"], ["exceptions-history"]]}
+        />
+      )}
     </div>
   );
 }

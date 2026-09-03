@@ -218,17 +218,18 @@ async def upload_schedules(
 
 
 def _assert_no_blocking_exceptions(db: Session, schedules: list[Schedule]) -> None:
-    """Chặn xoá kế hoạch khi còn ngoại lệ trỏ tới nó (việc 4, 2026-09-04).
+    """Chặn xoá kế hoạch khi còn ngoại lệ CHƯA GIẢI QUYẾT trỏ tới nó.
 
-    `exceptions.schedule_id` là FK NOT NULL — xoá mềm chuyến mà vẫn còn ngoại
-    lệ tham chiếu sẽ để lại ngoại lệ (và cả impact_analysis/decision/outcome
-    nuôi KPI) treo vào một chuyến "không còn tồn tại" theo UI, dữ liệu không
-    còn đọc lại được đúng.
+    Chỉ đếm ngoại lệ `status != 'resolved'` (và chưa xoá mềm). Ngoại lệ đã
+    `resolved` KHÔNG chặn nữa: nó là bản ghi lịch sử/KPI đã chốt, giữ nguyên
+    trong trang Lịch sử kể cả khi kế hoạch gốc bị xoá — CHẤP NHẬN CÓ CHỦ ĐÍCH
+    việc `exceptions.schedule_id` trỏ tới 1 `schedule_id` đã xoá mềm.
 
-    Đếm MỌI ngoại lệ chưa bị xoá mềm (`deleted_at IS NULL`), kể cả đã
-    `resolved` — ngoại lệ resolved chính là bản ghi KPI đã chốt, càng không
-    được để mồ côi. Thông báo tách riêng 2 nhóm để người dùng biết cần làm gì
-    với từng nhóm.
+    Từ khi tách "chọn phương án" khỏi "nhập kết quả" (xem api/decisions.py),
+    "resolved" chỉ còn nghĩa "ĐÃ CÓ outcome" — nên đúng 1 điều kiện
+    `!= 'resolved'` này đã tự phủ cả 2 trường hợp còn vướng: chưa chọn phương
+    án (pending/analyzing/awaiting_decision) và đã chọn phương án nhưng chưa
+    nhập kết quả (awaiting_outcome). Không cần điều kiện riêng nào khác.
     """
     if not schedules:
         return
@@ -237,24 +238,29 @@ def _assert_no_blocking_exceptions(db: Session, schedules: list[Schedule]) -> No
         select(Exception_).where(
             Exception_.schedule_id.in_(schedule_ids),
             Exception_.deleted_at.is_(None),
+            Exception_.status != "resolved",
         )
     ).scalars().all()
     if not blocking:
         return
 
-    resolved = [e for e in blocking if e.status == "resolved"]
-    open_ = [e for e in blocking if e.status != "resolved"]
+    awaiting_outcome = [e for e in blocking if e.status == "awaiting_outcome"]
+    not_decided = [e for e in blocking if e.status != "awaiting_outcome"]
     parts = []
-    if open_:
-        parts.append(f"{len(open_)} ngoại lệ chưa xử lý xong — hãy xử lý (xác nhận phương án) hoặc xoá chúng trước")
-    if resolved:
+    if not_decided:
+        parts.append(f"{len(not_decided)} ngoại lệ chưa chọn phương án — hãy xử lý hoặc xoá chúng trước")
+    if awaiting_outcome:
         parts.append(
-            f"{len(resolved)} ngoại lệ đã xử lý xong (resolved) — đây là dữ liệu KPI đã chốt, "
-            "không xoá được, nên kế hoạch này phải giữ lại"
+            f"{len(awaiting_outcome)} ngoại lệ đã chọn phương án nhưng chưa nhập kết quả thực tế — "
+            "hãy vào nhập kết quả để hoàn tất"
         )
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
-        detail=f"Không xoá được kế hoạch: còn {len(blocking)} ngoại lệ đang tham chiếu tới. " + "; ".join(parts) + ".",
+        detail=(
+            f"Không xoá được kế hoạch: còn {len(blocking)} ngoại lệ chưa giải quyết đang tham chiếu tới. "
+            + "; ".join(parts)
+            + "."
+        ),
     )
 
 

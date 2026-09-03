@@ -5,26 +5,24 @@ import { apiClient } from "../api/client";
 import { ExceptionActionsMenu } from "../components/ExceptionActionsMenu";
 import type { ExceptionSummary } from "../api/types";
 import { subTypeLabel } from "../labels";
-
-const SEVERITY_LABEL: Record<string, string> = { warning: "Cảnh báo", serious: "Nghiêm trọng", critical: "Khẩn cấp" };
-const STATUS_LABEL: Record<string, string> = {
-  pending: "Chờ xử lý",
-  analyzing: "Đang phân tích",
-  awaiting_decision: "Chờ xác nhận",
-  resolved: "Đã xử lý",
-};
+import { EXCEPTION_STATUS_LABEL as STATUS_LABEL, SEVERITY_LABEL } from "../statusLabels";
 
 // Bảng danh sách phẳng CHUYỂN NGUYÊN từ Dashboard cũ sang đây (cùng cột, cùng
-// bộ lọc), chỉ khác phạm vi: luôn ghim `status_filter=resolved`. Ngoại lệ đang
-// mở nay thuộc về Dashboard "hoạt động hôm nay", không lặp lại ở đây.
+// bộ lọc). Phạm vi: mọi ngoại lệ ĐÃ CÓ QUYẾT ĐỊNH — gồm "awaiting_outcome"
+// (đã chốt phương án, chưa nhập kết quả) và "resolved" (đã có kết quả). Từ
+// 2026-09-04 hai trạng thái này tách nhau (xem backend/api/decisions.py) nên
+// trang này không còn chỉ có mỗi "resolved".
+const HISTORY_STATUSES = "awaiting_outcome,resolved";
+
 export function History() {
   const navigate = useNavigate();
   const [severityFilter, setSeverityFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["exceptions-history", severityFilter],
+    queryKey: ["exceptions-history", severityFilter, statusFilter],
     queryFn: async () => {
-      const params: Record<string, string> = { status_filter: "resolved" };
+      const params: Record<string, string> = { status_filter: statusFilter || HISTORY_STATUSES };
       if (severityFilter) params.severity_filter = severityFilter;
       const res = await apiClient.get<ExceptionSummary[]>("/api/exceptions", { params });
       return res.data;
@@ -39,13 +37,13 @@ export function History() {
 
   return (
     <div className="page">
-      <h1>Lịch sử ngoại lệ đã xử lý</h1>
+      <h1>Lịch sử ngoại lệ đã quyết định</h1>
 
       <div className="filters">
-        {/* Bộ lọc trạng thái giữ lại đúng vị trí cũ nhưng khoá cứng ở "Đã xử
-            lý" — trang này theo định nghĩa chỉ chứa ngoại lệ đã xử lý xong. */}
-        <select value="resolved" disabled title="Trang Lịch sử chỉ hiện ngoại lệ đã xử lý">
-          <option value="resolved">Trạng thái: Đã xử lý</option>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">Tất cả (đã quyết định)</option>
+          <option value="awaiting_outcome">Chưa có kết quả</option>
+          <option value="resolved">Đã xử lý</option>
         </select>
         <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}>
           <option value="">Tất cả mức độ</option>
@@ -58,7 +56,7 @@ export function History() {
       <div className="card" style={{ padding: 0 }}>
         {isLoading && <div className="loading-spinner">Đang tải danh sách...</div>}
         {isError && <div className="error-banner" style={{ margin: 16 }}>Không tải được danh sách ngoại lệ.</div>}
-        {data && data.length === 0 && <div className="loading-spinner">Chưa có ngoại lệ nào đã xử lý.</div>}
+        {data && data.length === 0 && <div className="loading-spinner">Chưa có ngoại lệ nào đã quyết định.</div>}
         {data && data.length > 0 && (
           <table className="list-table">
             <thead>
@@ -88,15 +86,15 @@ export function History() {
                   </td>
                   <td>{exc.group_id ? "Nhóm ghép" : "-"}</td>
                   <td>
-                    {/* Menu sửa/xoá tự ẩn với ngoại lệ đã resolved (dữ liệu KPI
-                        đã chốt) — trang này theo định nghĩa chỉ chứa resolved
-                        nên thực tế luôn hiện dòng chú thích bên dưới. */}
+                    {/* Menu sửa/xoá tự ẩn khi ngoại lệ đã có quyết định — mọi
+                        dòng ở trang này đều thế, nên thực tế chỉ hiện chú
+                        thích bên dưới. */}
                     <ExceptionActionsMenu
                       exceptionId={exc.exception_id}
                       status={exc.status}
                       subTypeLabel={subTypeLabel(exc.sub_type)}
                     />
-                    {exc.status === "resolved" && <span className="drill-muted">Đã chốt</span>}
+                    <span className="drill-muted">Đã chốt</span>
                   </td>
                 </tr>
               ))}

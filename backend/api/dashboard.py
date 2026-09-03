@@ -20,10 +20,16 @@ from models import Exception_, ImpactAnalysis, Schedule, Vehicle
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-# Ngoại lệ "đang mở" = mọi trạng thái KHÁC 'resolved' (giữ y hệt danh sách
-# trong api/exceptions.py::ACTIVE_STATUSES — đã xử lý xong thì chuyển sang
-# trang Lịch sử, không hiện ở dashboard nữa).
-OPEN_STATUSES = ("pending", "analyzing", "awaiting_decision")
+# Ngoại lệ "đang mở" = mọi trạng thái KHÁC 'resolved'. `awaiting_outcome` (đã
+# chốt phương án nhưng CHƯA nhập kết quả thực tế, xem api/decisions.py) VẪN là
+# việc chưa xong của điều phối viên nên phải nằm ở đây — nếu thiếu, ngoại lệ
+# biến mất khỏi Dashboard ngay sau khi xác nhận phương án và không còn đường
+# nào để vào nhập kết quả.
+#
+# KHÁC với api/exceptions.py::ACTIVE_STATUSES (dùng cho detect_conflict): ở đó
+# `awaiting_outcome` bị loại ĐÚNG chủ đích — ngoại lệ đã có quyết định rồi
+# không được gộp nhóm với ngoại lệ mới nữa.
+OPEN_STATUSES = ("pending", "analyzing", "awaiting_decision", "awaiting_outcome")
 
 # Ca hiện tại suy ra từ GIỜ MÁY CHỦ, không hardcode. Phủ kín 24h để luôn có
 # đúng 1 ca hiện tại (không có khoảng trống).

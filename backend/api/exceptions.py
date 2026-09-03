@@ -12,11 +12,14 @@ from middleware.tenant import get_db
 from models import (
     AuditLog,
     BackgroundJob,
+    Decision,
     Exception_,
     ExceptionGroup,
     ImpactAnalysis,
     Option,
+    Outcome,
     Schedule,
+    User,
     Vehicle,
 )
 from schemas.exception import ExceptionCreate, ExceptionResponse, ExceptionUpdate, ManualOptionCreate
@@ -248,7 +251,11 @@ def list_exceptions(
 ):
     stmt = select(Exception_).where(Exception_.deleted_at.is_(None))
     if status_filter:
-        stmt = stmt.where(Exception_.status == status_filter)
+        # Nhận cả danh sách ngăn cách bằng dấu phẩy — trang Lịch sử cần lấy
+        # cùng lúc "awaiting_outcome" và "resolved" (mọi ngoại lệ đã có quyết
+        # định) trong 1 lần gọi. 1 giá trị đơn vẫn chạy y như trước.
+        wanted = [v.strip() for v in status_filter.split(",") if v.strip()]
+        stmt = stmt.where(Exception_.status.in_(wanted))
     if severity_filter:
         stmt = stmt.where(Exception_.severity == severity_filter)
     stmt = stmt.order_by(Exception_.reported_at.desc())
@@ -278,9 +285,19 @@ def get_exception_group(
         "group_id": str(group.group_id),
         "mode": group.mode,
         "status": group.status,
-        "exceptions": [ExceptionResponse.model_validate(m).model_dump(mode="json") for m in members],
+        "exceptions": [
+            {
+                **ExceptionResponse.model_validate(m).model_dump(mode="json"),
+                "reported_at": m.reported_at.isoformat() if m.reported_at else None,
+            }
+            for m in members
+        ],
         "options": [_option_to_dict(o) for o in options],
         "job": {"job_id": str(job.job_id), "status": job.status, "error": job.error} if job else None,
+        # Nhóm cũng cần quyết định/kết quả: ExceptionDetail chuyển hướng mọi
+        # ngoại lệ có group_id sang trang này, nên đây là đường DUY NHẤT để
+        # nhập/xem kết quả thực tế của ngoại lệ đã gộp nhóm.
+        **_group_decision_bundle(db, group),
     }
 
 
@@ -320,6 +337,70 @@ def create_manual_option(
     return _option_to_dict(option)
 
 
+def _user_name(db: Session, user_id) -> "str | None":
+    if user_id is None:
+        return None
+    user = db.get(User, user_id)
+    return (user.full_name or user.email) if user is not None else None
+
+
+def _bundle_from_decision(db: Session, decision: "Decision | None") -> dict:
+    """Quyết định đã xác nhận + phương án đã chọn + kết quả thực tế (việc 3,
+    2026-09-04).
+
+    Ghép sẵn ở BACKEND thay vì để trang chi tiết gọi thêm 3-4 API lẻ
+    (decision -> option -> outcome -> tên người dùng).
+    """
+    if decision is None:
+        return {"decision": None, "outcome": None}
+
+    option = db.get(Option, decision.selected_option_id)
+    outcome = db.execute(
+        select(Outcome).where(Outcome.decision_id == decision.decision_id)
+    ).scalars().first()
+
+    return {
+        "decision": {
+            "decision_id": str(decision.decision_id),
+            "confirmed_at": decision.confirmed_at.isoformat(),
+            "confirmed_by_name": _user_name(db, decision.confirmed_by),
+            "override_note": decision.override_note,
+            "is_group_decision": decision.group_id is not None,
+            "selected_option": _option_to_dict(option) if option is not None else None,
+        },
+        "outcome": {
+            "outcome_id": str(outcome.outcome_id),
+            "delivered_on_time": outcome.delivered_on_time,
+            "delay_minutes": outcome.delay_minutes,
+            "actual_cost": float(outcome.actual_cost) if outcome.actual_cost is not None else None,
+            "notes": outcome.notes,
+            "recorded_at": outcome.recorded_at.isoformat(),
+            "recorded_by_name": _user_name(db, outcome.recorded_by),
+        } if outcome is not None else None,
+    }
+
+
+def _decision_bundle(db: Session, exc: Exception_) -> dict:
+    """Ngoại lệ trong nhóm combined mode dùng chung 1 quyết định gắn với
+    `group_id`, không phải `exception_id` — phải tra cả 2 chiều."""
+    if exc.group_id is not None:
+        stmt = select(Decision).where(
+            (Decision.exception_id == exc.exception_id) | (Decision.group_id == exc.group_id)
+        )
+    else:
+        stmt = select(Decision).where(Decision.exception_id == exc.exception_id)
+    return _bundle_from_decision(db, db.execute(stmt.order_by(Decision.confirmed_at.desc())).scalars().first())
+
+
+def _group_decision_bundle(db: Session, group: ExceptionGroup) -> dict:
+    return _bundle_from_decision(
+        db,
+        db.execute(
+            select(Decision).where(Decision.group_id == group.group_id).order_by(Decision.confirmed_at.desc())
+        ).scalars().first(),
+    )
+
+
 @router.get("/{exception_id}")
 def get_exception_detail(
     exception_id: str,
@@ -345,27 +426,40 @@ def get_exception_detail(
 
     return {
         **ExceptionResponse.model_validate(exc).model_dump(mode="json"),
+        "reported_at": exc.reported_at.isoformat() if exc.reported_at else None,
         "impact_analysis": {
             "affected_stops": impact.affected_stops,
             "total_cost_estimate": float(impact.total_cost_estimate) if impact and impact.total_cost_estimate is not None else None,
         } if impact else None,
         "job": {"job_id": str(job.job_id), "status": job.status, "error": job.error} if job else None,
         "options": [_option_to_dict(o) for o in options],
+        **_decision_bundle(db, exc),
     }
 
 
 def _load_editable_exception(exception_id: str, current_user: dict, db: Session) -> Exception_:
-    """Ngoại lệ được phép sửa/xoá: đúng công ty, chưa soft-delete, và CHƯA
-    `resolved`. Ngoại lệ đã resolved là dữ liệu KPI đã chốt (đã có decision +
-    outcome ghi nhận) — sửa/xoá nó sẽ làm lệch báo cáo on_time_rate/chi phí,
-    nên chặn cứng ở tầng API chứ không chỉ ẩn nút ở UI."""
+    """Ngoại lệ được phép sửa/xoá: đúng công ty, chưa soft-delete, và CHƯA có
+    quyết định nào được xác nhận.
+
+    Chặn từ `awaiting_outcome` chứ không phải chỉ `resolved` (từ 2026-09-04,
+    xem api/decisions.py): `awaiting_outcome` nghĩa là dispatcher ĐÃ chốt
+    phương án, `decisions.selected_option_id` đã trỏ vào 1 option. Cho sửa lúc
+    này thì `_reset_analysis` sẽ xoá đúng option đang bị quyết định tham chiếu
+    (vỡ khoá ngoại), còn cho xoá thì để lại 1 quyết định mồ côi vẫn được KPI
+    đếm. Muốn đổi phương án đã chốt là nghiệp vụ khác, không phải "sửa thông
+    tin nhập sai"."""
     exc = db.get(Exception_, exception_id)
     if exc is None or str(exc.company_id) != current_user["company_id"] or exc.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy ngoại lệ {exception_id}")
     if exc.status == "resolved":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ngoại lệ đã xử lý xong (resolved) — không sửa/xoá được nữa để giữ đúng số liệu KPI đã chốt.",
+            detail="Ngoại lệ đã xử lý xong (đã có kết quả thực tế) — không sửa/xoá được nữa để giữ đúng số liệu KPI đã chốt.",
+        )
+    if exc.status == "awaiting_outcome":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ngoại lệ đã xác nhận phương án xử lý — không sửa/xoá được nữa, hãy nhập kết quả thực tế để hoàn tất.",
         )
     return exc
 

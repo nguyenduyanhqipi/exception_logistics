@@ -1,5 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import axios from "axios";
+import { EXCEPTION_STATUS_LABEL } from "../statusLabels";
 import { apiClient } from "../api/client";
 
 function errorMessage(query: UseQueryResult<unknown>): string {
@@ -73,6 +74,19 @@ export function ManagerDashboard() {
             <span>Cảnh báo: <span className="badge badge-warning">{kpi.data.by_severity.warning}</span></span>
             <span>Nghiêm trọng: <span className="badge badge-serious">{kpi.data.by_severity.serious}</span></span>
             <span>Khẩn cấp: <span className="badge badge-critical">{kpi.data.by_severity.critical}</span></span>
+          </div>
+        )}
+        {/* "Tỷ lệ đã xử lý" ở trên CHỈ đếm ngoại lệ đã có kết quả thực tế
+            (xem backend/api/decisions.py) — bày luôn phân bố theo trạng thái
+            để quản lý thấy rõ bao nhiêu ca đang kẹt ở "Chưa có kết quả" thay
+            vì tưởng chỉ tiêu tụt vì lý do khác. */}
+        {kpi.data && (
+          <div style={{ marginTop: 12, display: "flex", gap: 24, flexWrap: "wrap" }}>
+            {Object.entries(kpi.data.by_status).map(([key, count]) => (
+              <span key={key}>
+                {EXCEPTION_STATUS_LABEL[key] ?? key}: <span className={`badge badge-${key}`}>{count}</span>
+              </span>
+            ))}
           </div>
         )}
       </div>

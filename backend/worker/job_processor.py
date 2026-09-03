@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import BackgroundJob, Company, Exception_, ExceptionGroup, ImpactAnalysis, Option
+from models import BackgroundJob, Company, Decision, Exception_, ExceptionGroup, ImpactAnalysis, Option
 from core.option_generator import QuotaExceededError, generate_options_for_exception, generate_options_for_group
 from core.ranker import rank_options
 
@@ -94,7 +94,50 @@ def _customer_tolerant_of_delay(db: Session, exc: Exception_) -> bool:
     return max_delay <= exc.customer_accepted_delay_min
 
 
+# Trạng thái nghĩa là "ngoại lệ đã có quyết định được xác nhận" — job phân
+# tích còn tồn đọng cho nó là job CŨ, không được chạy nữa.
+_DECIDED_STATUSES = ("awaiting_outcome", "resolved")
+
+
+def _stale_reason(db: Session, job: BackgroundJob) -> "str | None":
+    """Job không còn nên chạy nữa (trả lý do) hay vẫn hợp lệ (trả None).
+
+    Job sinh ra rồi mới bị "vượt mặt": ngoại lệ bị xoá mềm, hoặc dispatcher đã
+    xác nhận phương án trước khi worker kịp chạy. Nếu vẫn chạy, `_process_job`
+    ghi đè `exc.status = "awaiting_decision"` — kéo 1 ngoại lệ ĐÃ CÓ quyết
+    định quay lại màn hình chọn phương án và cho xác nhận quyết định thứ hai.
+    Bug thật, tái hiện được khi worker dừng một lúc rồi chạy lại.
+    """
+    if job.exception_id is None:
+        return None
+    exc = db.get(Exception_, job.exception_id)
+    if exc is None:
+        return "Ngoại lệ không còn tồn tại"
+    if exc.deleted_at is not None:
+        return "Ngoại lệ đã bị xoá"
+    if exc.status in _DECIDED_STATUSES:
+        return "Ngoại lệ đã được xác nhận phương án trước khi job này kịp chạy"
+    decided = db.execute(
+        select(Decision).where(
+            (Decision.exception_id == exc.exception_id)
+            | ((Decision.group_id == exc.group_id) if exc.group_id is not None else False)
+        )
+    ).scalars().first()
+    if decided is not None:
+        return "Ngoại lệ đã có quyết định được xác nhận trước khi job này kịp chạy"
+    return None
+
+
 def _process_job(db: Session, job: BackgroundJob):
+    stale = _stale_reason(db, job)
+    if stale is not None:
+        job.status = "failed"
+        job.error = stale
+        job.started_at = datetime.now(timezone.utc)
+        job.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
     job.status = "running"
     job.started_at = datetime.now(timezone.utc)
     db.commit()

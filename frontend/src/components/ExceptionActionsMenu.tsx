@@ -7,10 +7,12 @@ import { ConfirmDialog } from "./ConfirmDialog";
 // Menu 3 chấm Sửa/Xoá cho 1 ngoại lệ (việc 5). Dùng chung ở Dashboard,
 // /history và ExceptionDetail.
 //
-// CHỈ hiện khi ngoại lệ CHƯA `resolved`: ngoại lệ đã xử lý xong là dữ liệu KPI
-// đã chốt (đã có decision + outcome), sửa/xoá nó làm lệch báo cáo. Backend
-// cũng chặn cứng (api/exceptions.py::_load_editable_exception) — ẩn nút ở đây
-// chỉ là lớp đầu tiên, không phải lớp bảo vệ duy nhất.
+// CHỈ hiện khi ngoại lệ CHƯA có quyết định nào được xác nhận. Từ khi tách
+// "chọn phương án" khỏi "nhập kết quả" (2026-09-04), `awaiting_outcome` cũng
+// đã có `decisions.selected_option_id` trỏ vào 1 phương án — sửa lúc đó sẽ xoá
+// đúng phương án đang bị quyết định tham chiếu. Backend chặn cứng cả 2 trạng
+// thái (api/exceptions.py::_load_editable_exception); ẩn nút ở đây chỉ là lớp
+// đầu tiên.
 
 interface ExceptionActionsMenuProps {
   exceptionId: string;
@@ -38,7 +40,7 @@ export function ExceptionActionsMenu({ exceptionId, status, subTypeLabel, onDele
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  if (status === "resolved") return null;
+  if (status === "resolved" || status === "awaiting_outcome") return null;
 
   async function handleDelete() {
     setBusy(true);

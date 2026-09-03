@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, Text, text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -23,6 +23,12 @@ class Outcome(Base):
     outcome_id = Column(UUID(as_uuid=True), primary_key=True, server_default=UUID_SERVER_DEFAULT)
     decision_id = Column(UUID(as_uuid=True), ForeignKey("decisions.decision_id"), nullable=False)
     delivered_on_time = Column(Boolean, nullable=True)
+    # Muộn bao nhiêu phút so với SLA. Chỉ có giá trị khi
+    # `delivered_on_time = False` (đúng giờ thì theo định nghĩa không có độ
+    # muộn) — ràng buộc này ép ở tầng schema, xem
+    # schemas/decision.py::OutcomeCreate. Nullable vì outcome ghi trước
+    # migration a6b7c8d9e0f1 không có số liệu này.
+    delay_minutes = Column(Integer, nullable=True)
     actual_cost = Column(Numeric, nullable=True)
     notes = Column(Text, nullable=True)
     recorded_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)

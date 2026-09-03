@@ -43,14 +43,28 @@ def get_kpi(
             select(Exception_.status, func.count()).where(Exception_.deleted_at.is_(None)).group_by(Exception_.status)
         ).all()
     )
+    # "resolved" = ĐÃ CÓ kết quả thực tế (outcome). Từ 2026-09-04, xác nhận
+    # phương án chỉ đưa ngoại lệ sang "awaiting_outcome" (xem api/decisions.py)
+    # — nên `resolved_rate` bên dưới KHÔNG còn đếm ngoại lệ mới chốt phương án
+    # là "đã xử lý xong" nữa. Đây là hành vi ĐÚNG theo định nghĩa mới, không
+    # phải hồi quy: chưa nhập kết quả thì chưa có gì nuôi on_time_rate /
+    # total_actual_cost.
     resolved = by_status.get("resolved", 0)
 
+    # Tính theo Decision.confirmed_at chứ không theo status -> KHÔNG bị ảnh
+    # hưởng bởi việc tách awaiting_outcome; vẫn đúng nghĩa "trung bình bao lâu
+    # từ lúc báo ngoại lệ đến lúc chốt được phương án".
     avg_resolution_minutes = db.execute(
         select(func.avg(func.extract("epoch", Decision.confirmed_at - Exception_.reported_at) / 60.0))
         .select_from(Decision)
         .join(Exception_, Exception_.exception_id == Decision.exception_id)
     ).scalar_one()
 
+    # on_time_rate / total_actual_cost / cost-accuracy đều đi từ bảng `outcomes`
+    # (không đọc `exceptions.status`) nên định nghĩa status mới không đụng tới.
+    # Từ 2026-09-04 `delivered_on_time` là bắt buộc khi tạo outcome
+    # (schemas/decision.py) nên `is_not(None)` chỉ còn để bao các outcome ghi
+    # từ trước.
     on_time_count = db.execute(
         select(func.count())
         .select_from(Outcome)
@@ -82,6 +96,10 @@ def get_kpi(
             "pending": by_status.get("pending", 0),
             "analyzing": by_status.get("analyzing", 0),
             "awaiting_decision": by_status.get("awaiting_decision", 0),
+            # PHẢI liệt kê rõ: dict trả về chốt cứng danh sách key, thiếu
+            # "awaiting_outcome" thì số ngoại lệ ở trạng thái đó biến mất khỏi
+            # báo cáo trong im lặng (tổng các key != total_exceptions).
+            "awaiting_outcome": by_status.get("awaiting_outcome", 0),
             "resolved": resolved,
         },
         "resolved_rate": round(resolved / total, 4) if total else None,
