@@ -59,7 +59,12 @@ def _active_exceptions_as_dicts(db: Session, exclude_id=None) -> list[dict]:
         select(Exception_, Schedule, Vehicle)
         .join(Schedule, Exception_.schedule_id == Schedule.schedule_id)
         .outerjoin(Vehicle, Exception_.vehicle_id == Vehicle.vehicle_id)
-        .where(Exception_.status.in_(ACTIVE_STATUSES))
+        # `deleted_at IS NULL` là BẮT BUỘC từ khi có xoá mềm ngoại lệ (việc 5):
+        # ngoại lệ đã xoá vẫn giữ nguyên `status` cũ (analyzing/awaiting_decision),
+        # thiếu điều kiện này thì detect_conflict còn gộp ngoại lệ MỚI vào chung
+        # nhóm với một ngoại lệ đã bị xoá — bug thật, phát hiện lúc test trên
+        # production.
+        .where(Exception_.status.in_(ACTIVE_STATUSES), Exception_.deleted_at.is_(None))
     ).all()
 
     result = []
@@ -260,7 +265,9 @@ def get_exception_group(
     if group is None or str(group.company_id) != current_user["company_id"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy nhóm {group_id}")
 
-    members = db.execute(select(Exception_).where(Exception_.exception_id.in_(group.exception_ids))).scalars().all()
+    members = db.execute(
+        select(Exception_).where(Exception_.exception_id.in_(group.exception_ids), Exception_.deleted_at.is_(None))
+    ).scalars().all()
     options = db.execute(select(Option).where(Option.group_id == group.group_id).order_by(Option.rank)).scalars().all()
     job = db.execute(
         select(BackgroundJob)
@@ -509,6 +516,30 @@ def delete_exception(
         .where(BackgroundJob.exception_id == exc.exception_id, BackgroundJob.status.in_(("pending", "running")))
         .values(status="failed", error="Ngoại lệ đã bị xoá")
     )
+
+    # Gỡ khỏi nhóm combined mode. `exception_groups.exception_ids` là nguồn duy
+    # nhất mà option_generator/job_processor/decisions đọc để biết thành viên
+    # nhóm — để nguyên id đã xoá trong đó là phương án phối hợp vẫn tiếp tục
+    # được sinh quanh 1 ngoại lệ không còn tồn tại.
+    if exc.group_id is not None:
+        group = db.get(ExceptionGroup, exc.group_id)
+        remaining = [i for i in group.exception_ids if i != exc.exception_id]
+        group.exception_ids = remaining
+        exc.group_id = None
+
+        survivors = db.execute(
+            select(Exception_).where(Exception_.exception_id.in_(remaining), Exception_.deleted_at.is_(None))
+        ).scalars().all() if remaining else []
+
+        # Nhóm chỉ còn 1 thành viên thì không còn là "quyết định phối hợp" nữa
+        # — tách nó ra chạy phân tích đơn lẻ lại từ đầu, vì phương án cũ của
+        # nhóm được sinh dựa trên cả ngoại lệ vừa bị xoá.
+        if len(survivors) <= 1:
+            for opt in db.execute(select(Option).where(Option.group_id == group.group_id)).scalars().all():
+                db.delete(opt)
+            for survivor in survivors:
+                survivor.group_id = None
+                _reset_analysis(db, survivor, current_user)
 
     db.add(
         AuditLog(
