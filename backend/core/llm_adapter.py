@@ -13,9 +13,10 @@ trong mục 16 mà không ảnh hưởng gì khác trong spec.
 XOAY VÒNG NHIỀU KEY: free tier Gemini giới hạn 20 request/ngày/key — với
 lượng test thật xuyên suốt Giai đoạn 6-10, 1 key không đủ (đã thật sự chạm
 giới hạn lúc test 10.3, rồi lại chạm lần nữa lúc regression test 2026-09-03
-dù đã có 3 key). User tiếp tục cấp thêm key dự phòng (đến `_5` tại thời điểm
-viết dòng này) — `_load_keys()` tự quét `GEMINI_API_KEY`, `GEMINI_API_KEY_2`
-... `GEMINI_API_KEY_10` (chỉ lấy biến nào thực sự có trong .env), KHÔNG cần
+dù đã có 3 key). User tiếp tục cấp thêm key dự phòng (đến `_10` tại thời
+điểm viết dòng này) — `_load_keys()` tự quét `GEMINI_API_KEY`, `GEMINI_API_KEY_2`
+... `GEMINI_API_KEY_20` (chỉ lấy biến nào thực sự có trong .env, giới hạn 20
+chỉ để chặn quét vô hạn, không phải số key thực tế đang dùng), KHÔNG cần
 sửa code mỗi lần thêm/bớt key, chỉ cần thêm dòng `GEMINI_API_KEY_N=...` vào
 .env. Khi 1 key báo lỗi hạn mức (429 RESOURCE_EXHAUSTED) HOẶC lỗi quá tải
 tạm thời phía Google (503 UNAVAILABLE — quan sát thực tế 2026-09-03: key vừa
@@ -44,7 +45,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 MODEL_NAME = "gemini-3.6-flash"
 
-_MAX_KEYS = 10  # GEMINI_API_KEY, GEMINI_API_KEY_2, ..., GEMINI_API_KEY_10 — xem docstring đầu file
+_MAX_KEYS = 20  # GEMINI_API_KEY, GEMINI_API_KEY_2, ..., GEMINI_API_KEY_20 — xem docstring đầu file
 _clients: dict[str, genai.Client] = {}
 _current_key_index = 0
 
