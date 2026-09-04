@@ -37,11 +37,16 @@ MAX_LLM_RETRIES = 3
 # lần sau chỉ còn 8s, cầm chắc thất bại. Đây là nguyên nhân chính của các dòng
 # log lỗi đúng 89999ms.
 #
-# ĐÁNH ĐỔI ĐÃ BIẾT: worst case một job giờ là MAX_LLM_RETRIES x 70 = 210s thay
-# vì 90s. Worker xử lý tuần tự nên 1 job chậm chặn các job severity thấp hơn
-# xếp hàng sau (job_processor.py::_job_priority) lâu hơn trước — chấp nhận đổi
-# lấy việc lần thử nào cũng được chạy trọn vẹn.
-MAX_ATTEMPT_LLM_SECONDS = 70.0
+# Chọn 90s (nâng từ 70s ngày 2026-09-05): log production từng có lượt gọi
+# THÀNH CÔNG mất 82s, mà đo lại local ngày 2026-09-04 cũng thấy 65.5s — trần
+# 70s cắt ngang đúng những lượt chậm-nhưng-vẫn-chạy-được đó. 90s bao được cả
+# mốc 82s đã quan sát, còn dư biên.
+#
+# ĐÁNH ĐỔI ĐÃ BIẾT: worst case một job là MAX_LLM_RETRIES x 90 = 270s. Worker
+# xử lý tuần tự nên 1 job chậm chặn các job severity thấp hơn xếp hàng sau
+# (job_processor.py::_job_priority) lâu hơn trước — chấp nhận đổi lấy việc lần
+# thử nào cũng được chạy trọn vẹn.
+MAX_ATTEMPT_LLM_SECONDS = 90.0
 
 
 class QuotaExceededError(RuntimeError):
