@@ -7,7 +7,6 @@ Giai đoạn 7).
 """
 import json
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 
@@ -24,13 +23,25 @@ MAX_LLM_RETRIES = 3
 
 # `generate()` (llm_adapter.py) tự xoay tối đa 30 key khi gặp lỗi hạn mức/quá
 # tải — với MAX_LLM_RETRIES=3 lần retry parse-JSON nữa lồng bên ngoài, KHÔNG
-# có giới hạn nào chặn tổng thời gian nếu Google chậm đều trên nhiều key liên
-# tiếp (worst case về lý thuyết: 3 x 30 lần thử, mỗi lần vài giây). Giới hạn
-# tổng ~90s cho CẢ quá trình sinh phương án — hết giờ thì dừng, coi như lỗi
-# AI (dispatcher nhập thủ công), giống hệt nhánh lỗi AI hiện có, KHÔNG treo vô
-# thời hạn worker (mỗi job xử lý tuần tự — 1 job treo lâu chặn luôn các job
-# severity thấp hơn xếp hàng sau, xem job_processor.py::_job_priority).
-MAX_TOTAL_LLM_SECONDS = 90.0
+# có giới hạn nào chặn thời gian nếu Google chậm đều trên nhiều key liên tiếp.
+# Cần một trần thời gian để hết giờ thì dừng, coi như lỗi AI (dispatcher nhập
+# thủ công), KHÔNG treo vô thời hạn worker.
+#
+# ĐỔI 2026-09-04 (chiều): trần này là ngân sách RIÊNG CHO MỖI LẦN THỬ, không
+# còn là ngân sách CỘNG DỒN cho cả vòng lặp.
+#
+# Bản cũ (90s cộng dồn) trừ dần theo thời gian đã trôi, nên lần thử thứ 2/3
+# lãnh phần thời gian còn thừa của lần trước và bị cắt ngang GIỮA CHỪNG dù
+# đang chạy bình thường. Đo thật trên dữ liệu production ngày 2026-09-04: một
+# lượt gọi thành công mất 13-58s, cá biệt 82s — chỉ cần lần đầu chậm 82s là 2
+# lần sau chỉ còn 8s, cầm chắc thất bại. Đây là nguyên nhân chính của các dòng
+# log lỗi đúng 89999ms.
+#
+# ĐÁNH ĐỔI ĐÃ BIẾT: worst case một job giờ là MAX_LLM_RETRIES x 70 = 210s thay
+# vì 90s. Worker xử lý tuần tự nên 1 job chậm chặn các job severity thấp hơn
+# xếp hàng sau (job_processor.py::_job_priority) lâu hơn trước — chấp nhận đổi
+# lấy việc lần thử nào cũng được chạy trọn vẹn.
+MAX_ATTEMPT_LLM_SECONDS = 70.0
 
 
 class QuotaExceededError(RuntimeError):
@@ -235,14 +246,16 @@ def _call_llm_with_retry(
     exception_id: "str | None" = None,
     prompt_version_id: "str | None" = None,
     daily_limit: int = DAILY_CALL_LIMIT_DEFAULT,
-    max_total_seconds: float = MAX_TOTAL_LLM_SECONDS,
+    max_attempt_seconds: float = MAX_ATTEMPT_LLM_SECONDS,
 ) -> tuple["list[dict] | None", dict]:
     """Retry logic mục 8: gọi -> parse -> nếu fail, dọn text thử lại -> nếu vẫn
     fail, gọi lại kèm nhắc rõ 'respond ONLY with valid JSON' -> tối đa 3 lần.
-    Toàn bộ vòng lặp bị chặn trong ngân sách `max_total_seconds` CỘNG DỒN (không
-    phải mỗi lần thử) — hết ngân sách thì dừng ngay, trả về như 1 lỗi AI bình
-    thường (usage["error"] set, options=None), KHÔNG raise, để caller xử lý y
-    hệt nhánh AI lỗi/hết hạn mức hiện có.
+    MỖI lần thử có trọn `max_attempt_seconds` giây, KHÔNG trừ theo thời gian
+    các lần trước đã dùng (xem MAX_ATTEMPT_LLM_SECONDS). Lần thử nào quá giờ
+    thì lần đó tính là lỗi và vòng lặp đi tiếp sang lần sau; hết cả 3 lần vẫn
+    không có phương án hợp lệ thì trả về như 1 lỗi AI bình thường
+    (usage["error"] set, options=None), KHÔNG raise, để caller xử lý y hệt
+    nhánh AI lỗi/hết hạn mức hiện có.
 
     Nếu truyền `db`+`company_id`: kiểm tra hạn mức `DAILY_CALL_LIMIT_DEFAULT`
     (mục 8) TRƯỚC mỗi lần gọi thật (kể cả các lần retry — mỗi lần đều tính vào
@@ -253,19 +266,13 @@ def _call_llm_with_retry(
     usage = {"tokens_in": 0, "tokens_out": 0, "latency_ms": 0, "success": False, "error": None}
     prompt = full_prompt
     track_usage = db is not None and company_id is not None
-    loop_start = time.monotonic()
 
     for attempt in range(MAX_LLM_RETRIES):
-        remaining = max_total_seconds - (time.monotonic() - loop_start)
-        if remaining <= 0:
-            usage["error"] = f"Hết thời gian chờ AI sau {max_total_seconds:.0f}s — chuyển sang nhập phương án thủ công."
-            break
-
         if track_usage and not has_quota_remaining(db, company_id, limit=daily_limit):
             usage["error"] = f"Đã chạm giới hạn {daily_limit} lượt gọi AI/ngày cho công ty này"
             raise QuotaExceededError(usage["error"])
 
-        result = _generate_bounded(prompt, remaining)
+        result = _generate_bounded(prompt, max_attempt_seconds)
         usage["tokens_in"] += result.tokens_in
         usage["tokens_out"] += result.tokens_out
         usage["latency_ms"] += result.latency_ms
@@ -289,6 +296,12 @@ def _call_llm_with_retry(
         usage["error"] = "Không parse được JSON từ response LLM"
         prompt = full_prompt + "\n\nIMPORTANT: respond ONLY with valid JSON, no other text."
 
+    # Tới đây = đã dùng hết MAX_LLM_RETRIES lần mà vẫn không có phương án hợp
+    # lệ. Nói rõ số lần đã thử + hướng xử lý tiếp; câu gợi ý "chuyển sang nhập
+    # phương án thủ công" trước nằm ở nhánh hết ngân sách cộng dồn vừa bị bỏ,
+    # không có chỗ này thì dispatcher chỉ thấy mỗi lỗi kỹ thuật trần trụi.
+    if usage["error"]:
+        usage["error"] = f"{usage['error']} (đã thử {MAX_LLM_RETRIES} lần) — chuyển sang nhập phương án thủ công."
     return None, usage
 
 
