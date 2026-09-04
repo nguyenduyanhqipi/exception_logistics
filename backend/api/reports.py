@@ -216,4 +216,22 @@ def get_llm_usage(
         select(func.count()).where(LLMUsageLog.company_id == current_user["company_id"], LLMUsageLog.created_at >= today_start)
     ).scalar_one()
 
-    return {"days": days, "usage_by_date": by_date, "calls_today": calls_today}
+    # `success_rate` bên trên đếm theo TỪNG LƯỢT GỌI HTTP, không phải theo mỗi
+    # lần phân tích: 1 lần phân tích thất bại sinh tới MAX_LLM_RETRIES (=3)
+    # dòng lỗi, còn 1 lần thành công ngay chỉ sinh 1 dòng — nên tỷ lệ này LUÔN
+    # thấp hơn tỷ lệ phân tích thành công thật. Nhóm lỗi theo thông báo để
+    # nhìn ra ngay nguyên nhân nào đang chiếm đa số.
+    top_errors = db.execute(
+        select(LLMUsageLog.error, func.count())
+        .where(base_filter, LLMUsageLog.success.is_(False), LLMUsageLog.error.is_not(None))
+        .group_by(LLMUsageLog.error)
+        .order_by(func.count().desc())
+        .limit(10)
+    ).all()
+
+    return {
+        "days": days,
+        "usage_by_date": by_date,
+        "calls_today": calls_today,
+        "top_errors": [{"error": e, "count": n} for e, n in top_errors],
+    }

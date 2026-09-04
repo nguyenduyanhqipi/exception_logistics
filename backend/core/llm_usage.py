@@ -56,6 +56,7 @@ def log_llm_call(
     latency_ms: int,
     prompt_version_id: "str | None",
     success: bool,
+    error: "str | None" = None,
 ) -> LLMUsageLog:
     log = LLMUsageLog(
         company_id=company_id,
@@ -67,6 +68,9 @@ def log_llm_call(
         latency_ms=latency_ms,
         prompt_version_id=prompt_version_id,
         success=success,
+        # Cắt bớt: traceback/response body của SDK có thể rất dài, chỉ cần đủ
+        # để phân biệt loại lỗi.
+        error=(error[:1000] if error else None),
     )
     db.add(log)
     db.commit()

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import type { OutcomeInfo } from "../api/types";
 
@@ -38,6 +39,7 @@ interface OutcomeFormProps {
 
 export function OutcomeForm({ decisionId, existing, onDone, onCancel, invalidateKeys = [] }: OutcomeFormProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const editing = !!existing;
   // Đã ghi nhận là MUỘN thì không cho quay về ĐÚNG GIỜ (backend cũng chặn,
   // api/decisions.py::update_outcome) — khoá luôn lựa chọn ở UI cho rõ ràng.
@@ -85,6 +87,10 @@ export function OutcomeForm({ decisionId, existing, onDone, onCancel, invalidate
         await queryClient.invalidateQueries({ queryKey: key });
       }
       onDone();
+      // Việc 2 (2026-09-04): nhập kết quả LẦN ĐẦU là bước cuối của luồng xử lý
+      // -> quay về Dashboard làm việc tiếp. SỬA kết quả thì người dùng đang đi
+      // từ trang Lịch sử vào, trả họ về đúng chỗ đó thay vì ném sang Dashboard.
+      navigate(editing ? "/history" : "/");
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {

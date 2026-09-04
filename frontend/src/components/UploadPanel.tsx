@@ -30,7 +30,6 @@ export function UploadPanel({ kind }: { kind: SheetKind }) {
   const [result, setResult] = useState<Record<string, number> | null>(null);
 
   const endpoint = kind === "vehicles" ? "/api/vehicles/upload" : "/api/schedules/upload";
-  const title = kind === "vehicles" ? "Danh_muc_xe" : "Ke_hoach_giao_hang";
 
   async function handleUpload() {
     if (!file) return;
@@ -54,22 +53,27 @@ export function UploadPanel({ kind }: { kind: SheetKind }) {
 
   return (
     <div className="card">
+      {/* Trái -> phải: tiêu đề, ô chọn file, nút. Bỏ chữ "Sheet ..." ở cuối
+          hàng (2026-09-04) — tên sheet là chi tiết của file mẫu, không phải
+          thứ người dùng cần đọc mỗi lần upload. */}
       <div className="upload-row">
-        <label htmlFor={`upload-${kind}`}>Chọn file excel</label>
-        <input
-          id={`upload-${kind}`}
-          type="file"
-          accept=".xlsx"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
-            setErrors([]);
-            setResult(null);
-          }}
-        />
+        <h2 className="upload-row-title">Tải từ Excel</h2>
+        <div className="upload-row-file">
+          <label htmlFor={`upload-${kind}`}>Chọn file excel</label>
+          <input
+            id={`upload-${kind}`}
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setErrors([]);
+              setResult(null);
+            }}
+          />
+        </div>
         <button type="button" className="primary" disabled={!file || uploading} onClick={handleUpload}>
           {uploading ? "Đang tải lên..." : "Tải lên"}
         </button>
-        <span className="drill-muted">Sheet {title}</span>
       </div>
 
       {errors.length > 0 && (

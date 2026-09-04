@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Numeric, Text, text
+from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from models.base import Base, UUID_SERVER_DEFAULT
@@ -21,4 +21,7 @@ class Company(Base):
     # Mục 20 — opt-in (mặc định false), KHÔNG opt-out: company chưa bật thì
     # option_generator KHÔNG được truy vấn rag_case_bank cho company đó.
     rag_data_sharing_consent = Column(Boolean, nullable=False, server_default="false")
+    # Việc 3 (2026-09-04): sau bao nhiêu ngày kể từ `outcomes.recorded_at` thì
+    # khoá không cho sửa kết quả nữa. NULL/0 = không khoá.
+    outcome_edit_lock_days = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

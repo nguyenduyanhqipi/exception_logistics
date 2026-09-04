@@ -12,7 +12,11 @@ a { color: #2563eb; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 24px; background: #1e293b; color: white;
 }
-.topbar nav a { color: #cbd5e1; margin-right: 16px; text-decoration: none; font-size: 14px; }
+/* Nav dàn đều theo chiều ngang thay vì dồn hết về trái (2026-09-04). `nav`
+   chiếm phần chiều rộng còn lại của topbar rồi rải đều các mục; thứ tự mục
+   giữ nguyên như đã chốt (Lịch sử ngay trước Báo cáo/Cài đặt). */
+.topbar nav { flex: 1; display: flex; justify-content: space-evenly; align-items: center; gap: 8px; margin-right: 24px; }
+.topbar nav a { color: #cbd5e1; text-decoration: none; font-size: 14px; white-space: nowrap; }
 .topbar nav a.active, .topbar nav a:hover { color: white; }
 .topbar .user-info { font-size: 13px; color: #94a3b8; }
 .topbar button { background: #334155; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
@@ -201,3 +205,20 @@ button.danger:disabled { background: #fca5a5; cursor: not-allowed; }
   border: 1px solid #d1d5db; border-radius: 6px; font-size: 13.5px;
 }
 .section-search:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+
+
+/* Mục "Ngoại lệ chưa hoàn thành" ở đầu Dashboard */
+.blocking-card { border-left: 4px solid #f59e0b; }
+.blocking-item {
+  border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px;
+  margin-bottom: 10px; cursor: pointer; background: #fffdf7;
+}
+.blocking-item:hover { border-color: #f59e0b; background: #fffbeb; }
+.blocking-item-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.blocking-item table.list-table td, .blocking-item table.list-table th { padding: 5px 8px; }
+.blocking-item table.list-table tr:hover { background: transparent; cursor: pointer; }
+
+/* Hàng upload Excel: tiêu đề trái, ô chọn file giữa, nút phải */
+.upload-row { justify-content: space-between; }
+.upload-row-title { margin: 0; font-size: 15px; white-space: nowrap; }
+.upload-row-file { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; }

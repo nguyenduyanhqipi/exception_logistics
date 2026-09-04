@@ -4,13 +4,15 @@ Không có bước riêng trong BUILD_PLAN.md cho 2 endpoint này (khoảng tr�
 Giai đoạn 5-7, phát hiện lúc làm Giai đoạn 8) — bổ sung ở đây vì Dashboard
 dispatcher (bước 8.6) không thể "xác nhận quyết định" nếu thiếu chúng.
 """
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from middleware.auth import get_current_user
 from middleware.tenant import get_db
-from models import AuditLog, Decision, Exception_, ExceptionGroup, Option, Outcome, ResourceLock
+from models import AuditLog, Company, Decision, Exception_, ExceptionGroup, Option, Outcome, ResourceLock
 from schemas.decision import DecisionCreate, OutcomeCreate, OutcomeUpdate
 
 router = APIRouter(prefix="/api", tags=["decisions"])
@@ -208,6 +210,20 @@ def update_outcome(
     decision = db.get(Decision, outcome.decision_id)
     if decision is None or str(decision.company_id) != current_user["company_id"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy kết quả {outcome_id}")
+
+    # Hạn khoá sửa theo cấu hình công ty (việc 3). NULL/0 = không khoá.
+    company = db.get(Company, decision.company_id)
+    lock_days = company.outcome_edit_lock_days if company else None
+    if lock_days:
+        deadline = outcome.recorded_at + timedelta(days=lock_days)
+        if datetime.now(timezone.utc) > deadline:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Đã quá hạn {lock_days} ngày kể từ khi ghi nhận "
+                    f"({outcome.recorded_at.date().isoformat()}), không thể sửa kết quả này nữa."
+                ),
+            )
 
     if outcome.delivered_on_time is False and payload.delivered_on_time is True:
         raise HTTPException(

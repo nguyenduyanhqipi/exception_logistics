@@ -10,6 +10,8 @@ interface CompanySettings {
   default_depot_address: string | null;
   default_depot_area: string | null;
   default_cost_per_km: number;
+  /** Việc 3 (2026-09-04): null/0 = không khoá sửa kết quả. */
+  outcome_edit_lock_days: number | null;
 }
 
 export function Settings() {
@@ -29,6 +31,9 @@ export function Settings() {
   const [weightsSaved, setWeightsSaved] = useState(false);
   const [depotError, setDepotError] = useState<string | null>(null);
   const [depotSaved, setDepotSaved] = useState(false);
+  const [lockDays, setLockDays] = useState("");
+  const [lockError, setLockError] = useState<string | null>(null);
+  const [lockSaved, setLockSaved] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -38,6 +43,7 @@ export function Settings() {
     setDepotAddress(data.default_depot_address ?? "");
     setDepotArea(data.default_depot_area ?? "");
     setCostPerKm(String(data.default_cost_per_km));
+    setLockDays(data.outcome_edit_lock_days != null ? String(data.outcome_edit_lock_days) : "");
   }, [data]);
 
   async function handleSaveWeights(e: FormEvent) {
@@ -67,6 +73,22 @@ export function Settings() {
       setDepotSaved(true);
     } catch (err) {
       setDepotError(apiErrorMessage(err));
+    }
+  }
+
+  async function handleSaveLock(e: FormEvent) {
+    e.preventDefault();
+    setLockError(null);
+    setLockSaved(false);
+    try {
+      await apiClient.put("/api/settings/outcome-lock", {
+        // Để trống = không khoá; backend chuẩn hoá 0 về null.
+        outcome_edit_lock_days: lockDays === "" ? null : Number(lockDays),
+      });
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      setLockSaved(true);
+    } catch (err) {
+      setLockError(apiErrorMessage(err));
     }
   }
 
@@ -118,6 +140,33 @@ export function Settings() {
           <input type="number" min={0} value={costPerKm} onChange={(e) => { setCostPerKm(e.target.value); setDepotSaved(false); }} />
         </div>
         <button type="submit" className="primary">Lưu cài đặt kho</button>
+      </form>
+
+      <form onSubmit={handleSaveLock} className="card">
+        <h2>Khoá sửa kết quả</h2>
+        <p style={{ color: "#6b7280", fontSize: 13 }}>
+          Sau bao nhiêu ngày kể từ khi ghi nhận kết quả thực tế thì không cho sửa nữa. Để trống hoặc nhập 0 = không
+          khoá, sửa được mãi.
+        </p>
+        {lockError && <div className="error-banner">{lockError}</div>}
+        {lockSaved && <div className="success-banner">Đã lưu.</div>}
+        <div className="form-field" style={{ maxWidth: 260 }}>
+          <label>Số ngày khoá sửa kết quả</label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={lockDays}
+            placeholder="Để trống = không khoá"
+            onChange={(e) => { setLockDays(e.target.value); setLockSaved(false); }}
+          />
+          <span className="hint">
+            {lockDays === "" || Number(lockDays) === 0
+              ? "Hiện tại: không khoá."
+              : `Hiện tại: khoá sau ${Number(lockDays)} ngày.`}
+          </span>
+        </div>
+        <button type="submit" className="primary">Lưu cài đặt khoá</button>
       </form>
     </div>
   );

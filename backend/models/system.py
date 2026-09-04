@@ -17,6 +17,10 @@ class LLMUsageLog(Base):
     latency_ms = Column(Integer, nullable=True)
     prompt_version_id = Column(UUID(as_uuid=True), nullable=True)
     success = Column(Boolean, nullable=False)
+    # Thông báo lỗi nguyên văn khi success=False. Thiếu cột này thì không phân
+    # biệt được 429/503/timeout/lỗi khác lúc điều tra (xem migration
+    # b7c8d9e0f1a2). NULL khi thành công.
+    error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 

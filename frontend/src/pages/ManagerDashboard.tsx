@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import axios from "axios";
 import { EXCEPTION_STATUS_LABEL } from "../statusLabels";
+import { exceptionGroupLabel } from "../labels";
 import { apiClient } from "../api/client";
 
 function errorMessage(query: UseQueryResult<unknown>): string {
@@ -110,7 +111,7 @@ export function ManagerDashboard() {
                 <tr key={row.date}>
                   <td>{row.date}</td>
                   <td>{row.total}</td>
-                  <td>{Object.entries(row.by_group).map(([g, c]) => `${g}: ${c}`).join(", ")}</td>
+                  <td>{Object.entries(row.by_group).map(([g, c]) => `${exceptionGroupLabel(g)}: ${c}`).join(", ")}</td>
                 </tr>
               ))}
             </tbody>

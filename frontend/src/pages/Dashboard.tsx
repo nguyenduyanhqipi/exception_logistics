@@ -12,6 +12,7 @@ import type {
   Stop,
 } from "../api/types";
 import { ExceptionActionsMenu } from "../components/ExceptionActionsMenu";
+import { BlockingExceptions } from "../components/BlockingExceptions";
 import { subTypeLabel } from "../labels";
 import { EXCEPTION_STATUS_LABEL as STATUS_LABEL, SEVERITY_LABEL } from "../statusLabels";
 
@@ -148,7 +149,28 @@ export function Dashboard() {
     setOpenStop(null);
   }
 
-  const vehicles = data?.vehicles ?? [];
+  // Chuyến đã hiện ở mục "Ngoại lệ chưa hoàn thành" bị loại khỏi accordion để
+  // không hiện trùng 2 chỗ. Loại theo TỪNG CHUYẾN, không theo xe — ca/chuyến
+  // khác của cùng xe vẫn phải hiện bình thường.
+  const vehicles = useMemo(() => {
+    const locked = new Set(data?.locked_schedule_ids ?? []);
+    if (locked.size === 0) return data?.vehicles ?? [];
+    return (data?.vehicles ?? []).map((v) => {
+      const shifts = v.shifts
+        .map((sh) => {
+          const trips = sh.trips.filter((t) => !locked.has(t.schedule_id));
+          return {
+            ...sh,
+            trips,
+            trip_count: trips.length,
+            order_count: trips.reduce((n, t) => n + t.order_count, 0),
+          };
+        })
+        .filter((sh) => sh.trips.length > 0);
+      return { ...v, shifts };
+    });
+  }, [data]);
+
   const matches = useMemo(() => matchVehicles(vehicles, query), [vehicles, query]);
   const searching = query.trim().length > 0;
 
@@ -157,6 +179,8 @@ export function Dashboard() {
 
   return (
     <div className="page">
+      {data && <BlockingExceptions items={data.blocking ?? []} />}
+
       <h1>Hoạt động hôm nay</h1>
       <div className="dash-head">
         {data && (
@@ -729,10 +753,19 @@ function DeleteScheduleMenu() {
       });
       setConfirming(false);
       const vehicles: string[] = res.data.vehicles ?? [];
-      setResult(
+      const skipped: { vehicle_id: string; reason: string }[] = res.data.skipped ?? [];
+      const parts = [
         `Đã xoá ${res.data.deleted} chuyến của ngày ${shiftDate} ${shiftText}` +
-          (vehicles.length > 0 ? ` (xe: ${vehicles.join(", ")}).` : "."),
-      );
+          (vehicles.length > 0 ? ` (xe: ${vehicles.join(", ")})` : "") +
+          ".",
+      ];
+      if (skipped.length > 0) {
+        // Backend nay xoá THEO TỪNG XE, giữ lại xe còn ngoại lệ chưa xong —
+        // phải nói rõ giữ xe nào, nếu không người dùng tưởng đã xoá sạch.
+        const names = [...new Set(skipped.map((s) => s.vehicle_id))].join(", ");
+        parts.push(`Giữ lại ${skipped.length} chuyến (xe: ${names}) vì ${skipped[0].reason}.`);
+      }
+      setResult(parts.join(" "));
       queryClient.invalidateQueries({ queryKey: ["schedules"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-today"] });
       // Xoá xong thì đóng popover; thông báo kết quả hiện ngay dưới nút.

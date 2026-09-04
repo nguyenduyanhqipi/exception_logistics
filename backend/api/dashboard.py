@@ -31,6 +31,14 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 # không được gộp nhóm với ngoại lệ mới nữa.
 OPEN_STATUSES = ("pending", "analyzing", "awaiting_decision", "awaiting_outcome")
 
+# Ngoại lệ "chưa hoàn thành" — mục riêng ở ĐẦU Dashboard (2026-09-04): đã phân
+# tích xong nhưng còn chờ người quyết định/nhập kết quả. KHÔNG lọc theo ngày:
+# việc chưa xong từ hôm kia vẫn phải đập vào mắt điều phối viên.
+#
+# HẸP hơn OPEN_STATUSES có chủ đích: pending/analyzing là ngoại lệ AI đang
+# chạy, chưa cần ai làm gì — để nguyên trong "Hoạt động hôm nay".
+BLOCKING_STATUSES = ("awaiting_decision", "awaiting_outcome")
+
 # Ca hiện tại suy ra từ GIỜ MÁY CHỦ, không hardcode. Phủ kín 24h để luôn có
 # đúng 1 ca hiện tại (không có khoảng trống).
 SHIFT_WINDOWS = (
@@ -191,4 +199,65 @@ def dashboard_today(
         "current_shift_label": shift_now,
         "server_time": now.isoformat(timespec="seconds"),
         "vehicles": result,
+        **_blocking_section(db, open_exceptions, impacts),
     }
+
+
+def _blocking_section(db: Session, open_exceptions: list, impacts: dict) -> dict:
+    """Mục "Ngoại lệ chưa hoàn thành" + danh sách chuyến bị khoá theo nó.
+
+    `blocking`: mỗi ngoại lệ đang chờ người xử lý, kèm xe và CÁC ĐƠN bị ảnh
+    hưởng — không lọc theo ngày/ca.
+    `locked_schedule_ids`: các chuyến xuất hiện ở mục trên, để "Hoạt động hôm
+    nay" loại chúng khỏi accordion, tránh hiện trùng 2 chỗ. Các chuyến KHÁC
+    của cùng xe (ca/chuyến khác) không bị loại.
+    """
+    items = []
+    locked = set()
+    for exc in open_exceptions:
+        if exc.status not in BLOCKING_STATUSES:
+            continue
+        schedule = db.get(Schedule, exc.schedule_id)
+        if schedule is None:
+            continue
+        locked.add(str(schedule.schedule_id))
+
+        stops = list(schedule.stops or [])
+        affected = impacts.get(exc.exception_id, [])
+        affected_ids = {s.get("stop_id") for s in affected if s.get("stop_id")}
+        # `affected_stop_ids` rỗng = chưa khoanh vùng được điểm nào -> ngoại lệ
+        # ảnh hưởng cả chuyến, liệt kê toàn bộ đơn.
+        picked = [st for st in stops if st.get("stop_id") in affected_ids] if affected_ids else stops
+
+        vehicle = db.get(Vehicle, schedule.vehicle_id) if schedule.vehicle_id else None
+        items.append(
+            {
+                "exception_id": str(exc.exception_id),
+                "group_id": str(exc.group_id) if exc.group_id else None,
+                "sub_type": exc.sub_type,
+                "severity": exc.severity,
+                "status": exc.status,
+                "area": exc.area,
+                "reported_at": exc.reported_at.isoformat() if exc.reported_at else None,
+                "vehicle_id": schedule.vehicle_id,
+                "driver_name": vehicle.driver_name if vehicle else None,
+                "schedule_id": str(schedule.schedule_id),
+                "shift_date": schedule.shift_date.isoformat(),
+                "shift_label": schedule.shift_label,
+                "trip_sequence": schedule.trip_sequence,
+                "orders": [
+                    {
+                        "stop_id": st.get("stop_id"),
+                        "stop_order": st.get("stop_order"),
+                        "order_id": st.get("order_id"),
+                        "address": st.get("address"),
+                        "eta": st.get("eta"),
+                        "sla_deadline": st.get("sla_deadline"),
+                    }
+                    for st in picked
+                ],
+            }
+        )
+
+    items.sort(key=lambda i: (i["shift_date"], i["vehicle_id"] or "", i["trip_sequence"]))
+    return {"blocking": items, "locked_schedule_ids": sorted(locked)}

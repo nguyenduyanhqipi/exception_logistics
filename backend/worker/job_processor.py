@@ -196,7 +196,10 @@ def _process_job(db: Session, job: BackgroundJob):
         job.status = "done"
         job.completed_at = datetime.now(timezone.utc)
         job.error = llm_error
-        job.result = {"llm_fallback": llm_error is not None}
+        # GIỮ LẠI cờ `manual_retry` do api/exceptions.py::retry_analysis đặt lúc
+        # tạo job — nó là thứ duy nhất đếm được số lần thử lại thủ công. Gán đè
+        # nguyên dict sẽ xoá cờ và hạn mức 2 lần coi như vô hiệu.
+        job.result = {**(job.result or {}), "llm_fallback": llm_error is not None}
         db.commit()
     except Exception as e:  # noqa: BLE001 - worker phải bắt mọi lỗi để không crash tiến trình
         db.rollback()

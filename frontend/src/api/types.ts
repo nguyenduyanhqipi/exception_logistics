@@ -189,9 +189,41 @@ export interface DashboardVehicle {
   open_exceptions: DashboardOpenException[];
 }
 
+export interface BlockingOrder {
+  stop_id: string;
+  stop_order: number;
+  order_id: string;
+  address: string;
+  eta: string | null;
+  sla_deadline: string | null;
+}
+
+/** 1 ngoại lệ đang chờ người xử lý (awaiting_decision / awaiting_outcome),
+ *  KHÔNG lọc theo ngày — mục "Ngoại lệ chưa hoàn thành" ở đầu Dashboard. */
+export interface BlockingException {
+  exception_id: string;
+  group_id: string | null;
+  sub_type: string;
+  severity: Severity | null;
+  status: ExceptionStatus;
+  area: string | null;
+  reported_at: string | null;
+  vehicle_id: string;
+  driver_name: string | null;
+  schedule_id: string;
+  shift_date: string;
+  shift_label: string;
+  trip_sequence: number;
+  orders: BlockingOrder[];
+}
+
 export interface DashboardToday {
   shift_date: string;
   current_shift_label: string;
   server_time: string;
   vehicles: DashboardVehicle[];
+  blocking: BlockingException[];
+  /** Chuyến đã hiện ở mục "Ngoại lệ chưa hoàn thành" — "Hoạt động hôm nay"
+   *  loại chúng ra để không hiện trùng 2 chỗ. */
+  locked_schedule_ids: string[];
 }

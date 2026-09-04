@@ -139,6 +139,10 @@ export function ExceptionDetail() {
             </div>
           )}
 
+          {!jobActive && data.job?.error && (
+            <RetryAnalysisButton exceptionId={exceptionId!} onRetried={() => refetch()} />
+          )}
+
           {!jobActive && (
             <>
               <OptionList
@@ -161,6 +165,42 @@ export function ExceptionDetail() {
           invalidateKeys={[["exception", exceptionId], ["dashboard-today"], ["exceptions-history"]]}
         />
       )}
+    </div>
+  );
+}
+
+/** Nút "Thử lại phân tích AI" khi job trước lỗi (việc 4, 2026-09-04).
+ *
+ *  Hạn mức 2 lần đếm ở BACKEND (api/exceptions.py::retry_analysis) — nút này
+ *  chỉ hiển thị thông báo backend trả về, không tự đếm, để gọi thẳng API cũng
+ *  không lách được. */
+function RetryAnalysisButton({ exceptionId, onRetried }: { exceptionId: string; onRetried: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  async function handleRetry() {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await apiClient.post(`/api/exceptions/${exceptionId}/retry-analysis`);
+      setInfo(`Đã gửi lại yêu cầu phân tích (còn ${res.data.retries_left} lượt thử lại).`);
+      onRetried();
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      {error && <div className="error-banner">{error}</div>}
+      {info && <div className="success-banner">{info}</div>}
+      <button type="button" className="secondary" disabled={busy} onClick={handleRetry}>
+        {busy ? "Đang gửi lại..." : "Thử lại phân tích AI"}
+      </button>
     </div>
   );
 }

@@ -23,3 +23,19 @@ export const SUB_TYPE_LABEL: Record<string, string> = {
 export function subTypeLabel(subType: string): string {
   return SUB_TYPE_LABEL[subType] ?? subType;
 }
+
+
+// Nhãn tiếng Việt cho `exception_group` (nhóm ngoại lệ, tầng trên sub_type) —
+// lấy đúng chữ đang dùng ở form nhập ngoại lệ (exceptionForm.ts::GROUP_QUESTIONS)
+// để bảng "Xu hướng ngoại lệ" ở trang Báo cáo không hiện mã tiếng Anh thô.
+export const EXCEPTION_GROUP_LABEL: Record<string, string> = {
+  delay: "Trễ giờ",
+  road_block: "Chặn đường",
+  customer_reject: "Khách từ chối nhận hàng",
+  customer_change: "Khách đổi yêu cầu",
+  vehicle_issue: "Sự cố xe",
+};
+
+export function exceptionGroupLabel(group: string): string {
+  return EXCEPTION_GROUP_LABEL[group] ?? group;
+}

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from core.conflict_detector import detect_conflict, nearest_available_vehicles
@@ -647,3 +647,84 @@ def delete_exception(
     )
     db.commit()
     return None
+
+
+# Số lần dispatcher được bấm "Thử lại phân tích AI" cho 1 ngoại lệ (việc 4,
+# 2026-09-04). Đếm ở BACKEND qua `background_jobs` chứ không chỉ ẩn nút:
+# ẩn nút chỉ chặn được người dùng bình thường, gọi thẳng API vẫn lách được và
+# mỗi lần thử là 1-3 lượt gọi LLM thật, ăn vào hạn mức ngày của công ty.
+MAX_MANUAL_RETRIES = 2
+_RETRY_JOB_TYPES = ("analyze_exception", "analyze_group")
+
+
+@router.post("/{exception_id}/retry-analysis", status_code=status.HTTP_202_ACCEPTED)
+def retry_analysis(
+    exception_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Chạy lại job phân tích AI cho 1 ngoại lệ mà job trước đã lỗi (việc 4).
+
+    Chỉ cho khi ngoại lệ CHƯA có quyết định (dùng chung
+    `_load_editable_exception`) — đã chốt phương án rồi thì phân tích lại
+    không còn ý nghĩa, mà lại xoá mất phương án đang được quyết định tham
+    chiếu.
+    """
+    exc = _load_editable_exception(exception_id, current_user, db)
+
+    last_job = db.execute(
+        select(BackgroundJob)
+        .where(BackgroundJob.exception_id == exc.exception_id, BackgroundJob.job_type.in_(_RETRY_JOB_TYPES))
+        .order_by(BackgroundJob.created_at.desc())
+    ).scalars().first()
+    if last_job is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ngoại lệ này chưa từng chạy phân tích AI nên không có gì để thử lại.",
+        )
+    if last_job.status in ("pending", "running"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Đang có một lượt phân tích chạy dở — chờ nó xong đã.",
+        )
+
+    used = db.execute(
+        select(func.count())
+        .select_from(BackgroundJob)
+        .where(
+            BackgroundJob.exception_id == exc.exception_id,
+            BackgroundJob.job_type.in_(_RETRY_JOB_TYPES),
+            BackgroundJob.result["manual_retry"].as_boolean().is_(True),
+        )
+    ).scalar_one()
+    if used >= MAX_MANUAL_RETRIES:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Đã thử lại phân tích AI {used}/{MAX_MANUAL_RETRIES} lần cho ngoại lệ này. "
+                "Vui lòng dùng \"Tự nhập phương án khác\" để xử lý thủ công."
+            ),
+        )
+
+    job = _reset_analysis(db, exc, current_user)
+    # Đánh dấu ngay lúc tạo để lần đếm sau thấy được, kể cả khi job này lại lỗi.
+    job.result = {"manual_retry": True}
+
+    db.add(
+        AuditLog(
+            company_id=current_user["company_id"],
+            user_id=current_user["user_id"],
+            action="retry_analysis",
+            entity_type="exception",
+            entity_id=exc.exception_id,
+            detail={"attempt": used + 1, "max": MAX_MANUAL_RETRIES, "previous_error": last_job.error},
+        )
+    )
+    db.commit()
+    db.refresh(job)
+    return {
+        "job_id": str(job.job_id),
+        "job_type": job.job_type,
+        "retries_used": used + 1,
+        "retries_left": MAX_MANUAL_RETRIES - (used + 1),
+    }

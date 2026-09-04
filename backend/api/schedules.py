@@ -39,6 +39,7 @@ def _create_one_schedule(payload: ScheduleCreate, current_user: dict, db: Sessio
         )
     ).scalar_one_or_none()
     if existing is not None:
+        _assert_not_locked_for_overwrite(db, existing)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -191,6 +192,9 @@ async def upload_schedules(
         ).scalar_one_or_none()
 
         if existing is not None:
+            # UPSERT theo khoá -> phải chặn ghi đè lên chuyến đang bị ngoại lệ
+            # chưa giải quyết trỏ vào (xem _assert_not_locked_for_overwrite).
+            _assert_not_locked_for_overwrite(db, existing)
             existing.depot_arrival_time = depot_arrival
             existing.depot_loading_duration_min = depot_loading
             existing.planned_departure_time = planned_departure
@@ -217,51 +221,76 @@ async def upload_schedules(
     return {"created": created, "updated": updated, "trips": len(groups), "total_stops": len(rows)}
 
 
-def _assert_no_blocking_exceptions(db: Session, schedules: list[Schedule]) -> None:
-    """Chặn xoá kế hoạch khi còn ngoại lệ CHƯA GIẢI QUYẾT trỏ tới nó.
+UNFINISHED = "còn ngoại lệ chưa xong"
 
-    Chỉ đếm ngoại lệ `status != 'resolved'` (và chưa xoá mềm). Ngoại lệ đã
-    `resolved` KHÔNG chặn nữa: nó là bản ghi lịch sử/KPI đã chốt, giữ nguyên
-    trong trang Lịch sử kể cả khi kế hoạch gốc bị xoá — CHẤP NHẬN CÓ CHỦ ĐÍCH
-    việc `exceptions.schedule_id` trỏ tới 1 `schedule_id` đã xoá mềm.
 
-    Từ khi tách "chọn phương án" khỏi "nhập kết quả" (xem api/decisions.py),
-    "resolved" chỉ còn nghĩa "ĐÃ CÓ outcome" — nên đúng 1 điều kiện
-    `!= 'resolved'` này đã tự phủ cả 2 trường hợp còn vướng: chưa chọn phương
-    án (pending/analyzing/awaiting_decision) và đã chọn phương án nhưng chưa
-    nhập kết quả (awaiting_outcome). Không cần điều kiện riêng nào khác.
+def _blocked_schedule_ids(db: Session, schedule_ids: list) -> set:
+    """`schedule_id` nào đang bị 1 ngoại lệ CHƯA giải quyết trỏ tới.
+
+    "Chưa giải quyết" = `status != 'resolved'` và chưa xoá mềm. Từ khi tách
+    "chọn phương án" khỏi "nhập kết quả" (api/decisions.py), điều kiện này tự
+    phủ cả 2 trường hợp còn dở: chưa chọn phương án, và đã chọn phương án
+    nhưng chưa nhập kết quả.
     """
-    if not schedules:
-        return
-    schedule_ids = [s.schedule_id for s in schedules]
-    blocking = db.execute(
-        select(Exception_).where(
+    if not schedule_ids:
+        return set()
+    rows = db.execute(
+        select(Exception_.schedule_id).where(
             Exception_.schedule_id.in_(schedule_ids),
             Exception_.deleted_at.is_(None),
             Exception_.status != "resolved",
         )
     ).scalars().all()
-    if not blocking:
-        return
+    return set(rows)
 
-    awaiting_outcome = [e for e in blocking if e.status == "awaiting_outcome"]
-    not_decided = [e for e in blocking if e.status != "awaiting_outcome"]
-    parts = []
-    if not_decided:
-        parts.append(f"{len(not_decided)} ngoại lệ chưa chọn phương án — hãy xử lý hoặc xoá chúng trước")
-    if awaiting_outcome:
-        parts.append(
-            f"{len(awaiting_outcome)} ngoại lệ đã chọn phương án nhưng chưa nhập kết quả thực tế — "
-            "hãy vào nhập kết quả để hoàn tất"
+
+def _partition_deletable(db: Session, schedules: list) -> tuple:
+    """Chia danh sách chuyến thành (xoá được, giữ lại kèm lý do).
+
+    Trước 2026-09-04 chiều, chỉ cần 1 chuyến vướng ngoại lệ là CHẶN TOÀN BỘ
+    lệnh xoá — muốn dọn kế hoạch sai của 9 xe phải chờ giải quyết xong ngoại
+    lệ của xe thứ 10. Nay xoá phần xoá được, giữ lại phần vướng và nói rõ giữ
+    xe nào, vì sao.
+    """
+    blocked = _blocked_schedule_ids(db, [s.schedule_id for s in schedules])
+    deletable, skipped = [], []
+    for sched in schedules:
+        if sched.schedule_id in blocked:
+            skipped.append(
+                {
+                    "vehicle_id": sched.vehicle_id,
+                    "schedule_id": str(sched.schedule_id),
+                    "shift_label": sched.shift_label,
+                    "trip_sequence": sched.trip_sequence,
+                    "reason": UNFINISHED,
+                }
+            )
+        else:
+            deletable.append(sched)
+    return deletable, skipped
+
+
+def _assert_not_locked_for_overwrite(db: Session, existing) -> None:
+    """Chặn GHI ĐÈ lên đúng 1 chuyến đang có ngoại lệ chưa giải quyết.
+
+    `create_schedules` báo trùng khoá sẵn, nhưng `upload_schedules` thì UPSERT
+    theo khoá (xe + ngày + ca + số chuyến) — nạp lại file Excel sẽ thay sạch
+    `stops` của chuyến mà 1 ngoại lệ đang phân tích/chờ nhập kết quả trỏ vào,
+    khiến `impact_analysis.affected_stops` chỉ tới những `stop_id` không còn
+    tồn tại. Đổi ca hoặc đổi ngày thì khoá đã khác nên không đụng độ — chỉ
+    chặn đúng trường hợp trùng cả 4 field.
+    """
+    if existing is None:
+        return
+    if existing.schedule_id in _blocked_schedule_ids(db, [existing.schedule_id]):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Chuyến của xe {existing.vehicle_id} ngày {existing.shift_date} "
+                f"{existing.shift_label} chuyến {existing.trip_sequence} đang có ngoại lệ chưa xử lý xong — "
+                "không ghi đè được. Hãy xử lý xong ngoại lệ đó, hoặc nhập vào số chuyến khác."
+            ),
         )
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail=(
-            f"Không xoá được kế hoạch: còn {len(blocking)} ngoại lệ chưa giải quyết đang tham chiếu tới. "
-            + "; ".join(parts)
-            + "."
-        ),
-    )
 
 
 @router.delete("", status_code=status.HTTP_200_OK)
@@ -271,11 +300,8 @@ def delete_schedules_by_shift(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Xoá mềm TOÀN BỘ kế hoạch của 1 ngày + 1 ca (mọi xe, mọi trip_sequence).
-
-    `get_db` đã lọc theo company_id nên chỉ chạm dữ liệu của công ty đang đăng
-    nhập. Dùng chung guard với xoá lẻ 1 chuyến (`_assert_no_blocking_exceptions`).
-    """
+    """Xoá mềm kế hoạch của 1 ngày + 1 ca, THEO TỪNG XE — chuyến của xe đang có
+    ngoại lệ chưa giải quyết được giữ lại, phần còn lại vẫn xoá."""
     if shift_label not in ("ca_sang", "ca_chieu", "ca_dem"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -295,34 +321,34 @@ def delete_schedules_by_shift(
             detail=f"Không có kế hoạch nào cho ngày {shift_date} ca {shift_label}",
         )
 
-    _assert_no_blocking_exceptions(db, schedules)
-
+    deletable, skipped = _partition_deletable(db, schedules)
     now = datetime.now(timezone.utc)
-    for s in schedules:
-        s.deleted_at = now
+    for sched in deletable:
+        sched.deleted_at = now
     db.commit()
     return {
-        "deleted": len(schedules),
-        "vehicles": sorted({s.vehicle_id for s in schedules}),
+        "deleted": len(deletable),
+        "vehicles": sorted({s.vehicle_id for s in deletable}),
+        "skipped": skipped,
         "shift_date": shift_date.isoformat(),
         "shift_label": shift_label,
     }
 
 
-@router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{schedule_id}", status_code=status.HTTP_200_OK)
 def delete_schedule(
     schedule_id: str,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Xoá mềm 1 chuyến. Cùng luật với xoá theo ngày+ca: chuyến đang có ngoại
+    lệ chưa giải quyết thì giữ lại (`deleted: 0` + `skipped`), không xoá."""
     schedule = db.get(Schedule, schedule_id)
     if schedule is None or str(schedule.company_id) != current_user["company_id"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy chuyến {schedule_id}")
 
-    # Trước đây xoá thẳng, không kiểm tra gì — ngoại lệ đang trỏ tới chuyến này
-    # bị bỏ mồ côi trong im lặng. Nay dùng chung guard với xoá theo ngày/ca.
-    _assert_no_blocking_exceptions(db, [schedule])
-
-    schedule.deleted_at = datetime.now(timezone.utc)
+    deletable, skipped = _partition_deletable(db, [schedule])
+    for sched in deletable:
+        sched.deleted_at = datetime.now(timezone.utc)
     db.commit()
-    return None
+    return {"deleted": len(deletable), "vehicles": [s.vehicle_id for s in deletable], "skipped": skipped}

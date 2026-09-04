@@ -274,7 +274,7 @@ def _call_llm_with_retry(
             log_llm_call(
                 db, company_id, exception_id, MODEL_NAME,
                 result.tokens_in, result.tokens_out, result.latency_ms,
-                prompt_version_id, result.success,
+                prompt_version_id, result.success, result.error,
             )
 
         if not result.success:
