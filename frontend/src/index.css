@@ -176,3 +176,28 @@ button.danger:disabled { background: #fca5a5; cursor: not-allowed; }
   font-size: 13.5px; color: #374151; white-space: pre-wrap;
 }
 .resolution-sep { border-top: 1px solid #eef0f2; margin: 16px 0 12px; }
+
+/* Header Dashboard: dòng tóm tắt + nút "Xoá kế hoạch" cùng hàng */
+.dash-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: -8px 0 14px; }
+.dash-head-actions { position: relative; flex-shrink: 0; }
+.dash-head-result { margin: 8px 0 0; }
+
+/* Popover thả xuống từ nút trên header */
+.popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: 320px;
+  background: white; border: 1px solid #e5e7eb; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14); padding: 14px 16px;
+}
+.popover-title { margin: 0 0 6px; font-size: 15px; }
+
+/* Hàng upload Excel gọn 1 dòng */
+.upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.upload-row label { font-size: 13px; font-weight: 600; color: #374151; }
+
+/* Tiêu đề khu vực có ô tìm kiếm bên phải */
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.section-search {
+  width: 320px; max-width: 100%; padding: 7px 11px;
+  border: 1px solid #d1d5db; border-radius: 6px; font-size: 13.5px;
+}
+.section-search:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }

@@ -1,78 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import axios from "axios";
+import { useMemo, useState } from "react";
 import { apiClient, apiErrorMessage } from "../api/client";
 import type { Vehicle } from "../api/types";
+import { VEHICLE_STATUS_LABEL } from "../statusLabels";
 
-type SheetKind = "vehicles" | "schedules";
-
-function extractErrors(err: unknown): string[] {
-  if (axios.isAxiosError(err)) {
-    const detail = err.response?.data?.detail;
-    if (detail && typeof detail === "object" && Array.isArray(detail.errors)) return detail.errors;
-    if (typeof detail === "string") return [detail];
-  }
-  return ["Có lỗi không xác định xảy ra khi upload."];
-}
-
-function UploadPanel({ kind }: { kind: SheetKind }) {
-  const queryClient = useQueryClient();
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [result, setResult] = useState<Record<string, number> | null>(null);
-
-  const endpoint = kind === "vehicles" ? "/api/vehicles/upload" : "/api/schedules/upload";
-  const title = kind === "vehicles" ? "Danh_muc_xe" : "Ke_hoach_giao_hang";
-
-  async function handleUpload() {
-    if (!file) return;
-    setUploading(true);
-    setErrors([]);
-    setResult(null);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await apiClient.post(endpoint, formData, { headers: { "Content-Type": "multipart/form-data" } });
-      setResult(res.data);
-      setFile(null);
-      if (kind === "vehicles") queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-    } catch (err) {
-      setErrors(extractErrors(err));
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  return (
-    <div className="card">
-      <h2>Sheet {title}</h2>
-      <input type="file" accept=".xlsx" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setErrors([]); setResult(null); }} />
-      <div style={{ marginTop: 10 }}>
-        <button type="button" className="primary" disabled={!file || uploading} onClick={handleUpload}>
-          {uploading ? "Đang upload..." : "Upload"}
-        </button>
-      </div>
-
-      {errors.length > 0 && (
-        <div className="error-banner" style={{ marginTop: 12 }}>
-          <strong>Upload thất bại — {errors.length} lỗi cần sửa:</strong>
-          <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
-            {errors.map((e, i) => (
-              <li key={i}>{e}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {result && (
-        <div className="success-banner" style={{ marginTop: 12 }}>
-          Upload thành công: {Object.entries(result).map(([k, v]) => `${k}=${v}`).join(", ")}
-        </div>
-      )}
-    </div>
-  );
-}
+// Bảng danh mục xe (upload Excel + sửa/xoá từng dòng) — chuyển nguyên từ
+// ExcelUpload.tsx sang đây khi gộp 2 mục nav thành trang "Xe & Kế hoạch"
+// (2026-09-04), thêm ô tìm kiếm và nhãn trạng thái tiếng Việt.
 
 interface VehicleEditState {
   driver_name: string;
@@ -92,6 +26,25 @@ function toEditState(v: Vehicle): VehicleEditState {
     cost_per_km: v.cost_per_km !== null ? String(v.cost_per_km) : "",
     status: v.status,
   };
+}
+
+/** Chuỗi gộp mọi trường tìm kiếm được của 1 xe.
+ *
+ * Có CẢ `status` thô ("active") lẫn nhãn tiếng Việt ("Hoạt động") để gõ kiểu
+ * nào cũng ra — người dùng thấy nhãn tiếng Việt trên bảng nên sẽ gõ theo nó,
+ * nhưng dữ liệu thật vẫn là "active"/"inactive". */
+function haystack(v: Vehicle): string {
+  return [
+    v.vehicle_id,
+    v.driver_name,
+    v.driver_phone,
+    String(v.max_payload_kg),
+    v.vehicle_type ?? "",
+    v.status,
+    VEHICLE_STATUS_LABEL[v.status] ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
 }
 
 function VehicleRow({ vehicle }: { vehicle: Vehicle }) {
@@ -117,6 +70,9 @@ function VehicleRow({ vehicle }: { vehicle: Vehicle }) {
         max_payload_kg: Number(form.max_payload_kg),
         vehicle_type: form.vehicle_type || null,
         cost_per_km: form.cost_per_km ? Number(form.cost_per_km) : null,
+        // Giá trị gửi API vẫn là "active"/"inactive", chỉ nhãn hiển thị là
+        // tiếng Việt — backend (schedules.py::upload_schedules,
+        // ScheduleInput) so khớp theo giá trị thô này.
         status: form.status,
       });
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
@@ -129,7 +85,12 @@ function VehicleRow({ vehicle }: { vehicle: Vehicle }) {
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Xoá xe ${vehicle.vehicle_id}? Xe sẽ chuyển sang trạng thái ngừng hoạt động (inactive), không xoá hẳn khỏi hệ thống.`)) return;
+    if (
+      !window.confirm(
+        `Xoá xe ${vehicle.vehicle_id}? Xe sẽ chuyển sang trạng thái Tạm ngừng, không xoá hẳn khỏi hệ thống.`,
+      )
+    )
+      return;
     setSaving(true);
     setError(null);
     try {
@@ -152,8 +113,8 @@ function VehicleRow({ vehicle }: { vehicle: Vehicle }) {
         <td><input type="number" value={form.cost_per_km} onChange={(e) => setForm({ ...form, cost_per_km: e.target.value })} style={{ width: 80 }} /></td>
         <td>
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            <option value="active">active</option>
-            <option value="inactive">inactive</option>
+            <option value="active">Hoạt động</option>
+            <option value="inactive">Tạm ngừng</option>
           </select>
         </td>
         <td style={{ whiteSpace: "nowrap" }}>
@@ -177,7 +138,11 @@ function VehicleRow({ vehicle }: { vehicle: Vehicle }) {
       <td>{vehicle.max_payload_kg}</td>
       <td>{vehicle.vehicle_type ?? "-"}</td>
       <td>{vehicle.cost_per_km !== null ? `${vehicle.cost_per_km.toLocaleString("vi-VN")}đ` : "-"}</td>
-      <td>{vehicle.status}</td>
+      <td>
+        <span className={`badge badge-${vehicle.status === "active" ? "ok" : "pending"}`}>
+          {VEHICLE_STATUS_LABEL[vehicle.status] ?? vehicle.status}
+        </span>
+      </td>
       <td style={{ whiteSpace: "nowrap" }}>
         {error && <div className="error-banner" style={{ margin: "4px 0", padding: 6, fontSize: 12 }}>{error}</div>}
         <button type="button" className="secondary" disabled={saving} onClick={startEdit} style={{ marginRight: 6 }}>
@@ -191,19 +156,41 @@ function VehicleRow({ vehicle }: { vehicle: Vehicle }) {
   );
 }
 
-function VehicleList() {
+export function VehicleList() {
+  const [query, setQuery] = useState("");
   const { data, isLoading, isError } = useQuery({
     queryKey: ["vehicles"],
     queryFn: async () => (await apiClient.get<Vehicle[]>("/api/vehicles")).data,
   });
 
+  // Lọc substring không phân biệt hoa/thường trên mọi cột; xe không khớp bị
+  // ẩn hẳn khỏi bảng (giống ô tìm kiếm ở Dashboard), không làm mờ.
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || !data) return data;
+    return data.filter((v) => haystack(v).includes(q));
+  }, [data, query]);
+
   return (
     <div className="card">
-      <h2>Danh sách xe hiện có</h2>
+      <div className="section-head">
+        <h2 style={{ margin: 0 }}>Danh sách xe hiện có</h2>
+        <input
+          type="search"
+          className="section-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Tìm biển số, tài xế, SĐT, tải trọng, loại xe, trạng thái..."
+          aria-label="Tìm xe trong danh mục"
+        />
+      </div>
       {isLoading && <div className="loading-spinner">Đang tải...</div>}
       {isError && <div className="error-banner">Không tải được danh sách xe.</div>}
       {data && data.length === 0 && <p style={{ color: "#6b7280" }}>Chưa có xe nào.</p>}
-      {data && data.length > 0 && (
+      {data && data.length > 0 && filtered && filtered.length === 0 && (
+        <p style={{ color: "#6b7280" }}>Không có xe nào khớp "{query.trim()}".</p>
+      )}
+      {filtered && filtered.length > 0 && (
         <table className="list-table">
           <thead>
             <tr>
@@ -218,32 +205,12 @@ function VehicleList() {
             </tr>
           </thead>
           <tbody>
-            {data.map((v) => (
+            {filtered.map((v) => (
               <VehicleRow key={v.vehicle_id} vehicle={v} />
             ))}
           </tbody>
         </table>
       )}
-    </div>
-  );
-}
-
-export function ExcelUpload() {
-  const [tab, setTab] = useState<SheetKind>("vehicles");
-
-  return (
-    <div className="page">
-      <h1>Upload dữ liệu từ Excel</h1>
-      <div className="filters">
-        <button type="button" className={tab === "vehicles" ? "primary" : "secondary"} onClick={() => setTab("vehicles")}>
-          Danh mục xe
-        </button>
-        <button type="button" className={tab === "schedules" ? "primary" : "secondary"} onClick={() => setTab("schedules")}>
-          Kế hoạch giao hàng
-        </button>
-      </div>
-      <UploadPanel key={tab} kind={tab} />
-      {tab === "vehicles" && <VehicleList />}
     </div>
   );
 }

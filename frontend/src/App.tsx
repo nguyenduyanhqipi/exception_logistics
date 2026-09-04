@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import axios from "axios";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Layout } from "./components/Layout";
@@ -13,8 +13,7 @@ import { EditException } from "./pages/EditException";
 import { ExceptionGroup } from "./pages/ExceptionGroup";
 import { ManagerDashboard } from "./pages/ManagerDashboard";
 import { Settings } from "./pages/Settings";
-import { ScheduleInput } from "./pages/ScheduleInput";
-import { ExcelUpload } from "./pages/ExcelUpload";
+import { Operations } from "./pages/Operations";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,8 +51,12 @@ function App() {
               <Route path="/exceptions/:exceptionId" element={<ExceptionDetail />} />
               <Route path="/exceptions/:exceptionId/edit" element={<EditException />} />
               <Route path="/exception-groups/:groupId" element={<ExceptionGroup />} />
-              <Route path="/schedules/new" element={<ScheduleInput />} />
-              <Route path="/excel-upload" element={<ExcelUpload />} />
+              <Route path="/operations" element={<Operations />} />
+              {/* 2 đường dẫn cũ vẫn còn được trỏ tới ở nhiều nơi trong code
+                  (NewException.tsx, tài liệu deploy...) — giữ làm alias mở
+                  đúng tab thay vì phải đi sửa từng chỗ. */}
+              <Route path="/schedules/new" element={<Navigate to="/operations?tab=schedules" replace />} />
+              <Route path="/excel-upload" element={<Navigate to="/operations?tab=vehicles" replace />} />
               <Route path="/manager" element={<ManagerDashboard />} />
               <Route path="/settings" element={<Settings />} />
             </Route>

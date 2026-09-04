@@ -151,7 +151,7 @@ export function NewException() {
             Chưa có kế hoạch giao hàng cho hôm nay — vui lòng nhập kế hoạch trước khi khai báo ngoại lệ.
           </div>
           <Link to="/schedules/new" className="primary" style={{ display: "inline-block", marginTop: 12, textDecoration: "none", textAlign: "center" }}>
-            Sang trang Nhập kế hoạch
+            Sang trang Xe & Kế hoạch
           </Link>
         </div>
       </div>

@@ -161,7 +161,7 @@ async def upload_schedules(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "errors": [
-                    f"Xe {vid} chưa có trong Danh_muc_xe (hoặc đang inactive) — thêm xe trước khi nhập kế hoạch"
+                    f"Xe {vid} chưa có trong Danh_muc_xe (hoặc đang tạm ngừng hoạt động) — thêm xe trước khi nhập kế hoạch"
                     for vid in missing
                 ]
             },

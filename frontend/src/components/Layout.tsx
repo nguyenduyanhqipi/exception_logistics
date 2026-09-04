@@ -14,13 +14,16 @@ export function Layout() {
     <div className="app-shell">
       <header className="topbar">
         <nav>
+          {/* "Nhập ngoại lệ mới" KHÔNG còn ở nav (2026-09-04): route
+              /exceptions/new vẫn giữ, vào bằng nút "+ Ngoại lệ" trên Dashboard
+              — nơi đã biết sẵn xe nào, đỡ phải tự chọn lại chuyến.
+              "Lịch sử" đứng ngay TRƯỚC khối Báo cáo/Cài đặt; với điều phối
+              viên (không có 2 mục đó) nó là mục cuối. */}
           <NavLink to="/" end>
             Dashboard
           </NavLink>
+          <NavLink to="/operations">Xe &amp; Kế hoạch</NavLink>
           <NavLink to="/history">Lịch sử</NavLink>
-          <NavLink to="/exceptions/new">Nhập ngoại lệ mới</NavLink>
-          <NavLink to="/schedules/new">Nhập kế hoạch</NavLink>
-          <NavLink to="/excel-upload">Upload Excel</NavLink>
           {user?.role === "manager" && (
             <>
               <NavLink to="/manager">Báo cáo</NavLink>

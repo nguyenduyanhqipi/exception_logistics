@@ -18,3 +18,11 @@ export const SEVERITY_LABEL: Record<string, string> = {
   serious: "Nghiêm trọng",
   critical: "Khẩn cấp",
 };
+
+// Trạng thái XE (vehicles.status). Giá trị thô "active"/"inactive" giữ nguyên
+// khi gửi API — backend so khớp theo nó (schedules.py::upload_schedules,
+// ScheduleForm lọc xe đang chạy); đây chỉ là nhãn hiển thị.
+export const VEHICLE_STATUS_LABEL: Record<string, string> = {
+  active: "Hoạt động",
+  inactive: "Tạm ngừng",
+};
