@@ -35,7 +35,7 @@ schedule = db.query(Schedule).filter(Schedule.company_id == company_id).first()
 if schedule is None:
     print("Không có schedule demo nào trong DB — tạo tạm 1 schedule test.")
     vehicle = db.query(Vehicle).filter(Vehicle.company_id == company_id).first()
-    schedule = Schedule(company_id=company_id, vehicle_id=vehicle.vehicle_id, shift_date=datetime.now().date(), shift_label="ca_sang", stops=[])
+    schedule = Schedule(company_id=company_id, vehicle_id=vehicle.vehicle_id, shift_date=datetime.now().date(), stops=[])
     db.add(schedule)
     db.commit()
     db.refresh(schedule)

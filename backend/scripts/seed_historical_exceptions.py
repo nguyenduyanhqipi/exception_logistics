@@ -71,7 +71,6 @@ def main():
                 company_id=COMPANY_ID,
                 vehicle_id=vehicle_id,
                 shift_date=reported_at.date(),
-                shift_label=random.choice(["ca_sang", "ca_chieu", "ca_dem"]),
                 trip_sequence=100 + i,  # dải số riêng, không đụng chuyến demo/thật
                 stops=[],
                 created_at=reported_at,

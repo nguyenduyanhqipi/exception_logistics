@@ -76,12 +76,11 @@ def _compute_planned_departure(arrival: "time | None", loading_min: "int | None"
     return (dt + timedelta(minutes=loading_min)).time()
 
 
-def _upsert_schedule(db, vehicle_id, shift_date_val, shift_label, trip_sequence, stops, depot_arrival_time=None, depot_loading_duration_min=None):
+def _upsert_schedule(db, vehicle_id, shift_date_val, trip_sequence, stops, depot_arrival_time=None, depot_loading_duration_min=None):
     existing = db.execute(
         select(Schedule).where(
             Schedule.vehicle_id == vehicle_id,
             Schedule.shift_date == shift_date_val,
-            Schedule.shift_label == shift_label,
             Schedule.trip_sequence == trip_sequence,
             Schedule.deleted_at.is_(None),
         )
@@ -100,7 +99,6 @@ def _upsert_schedule(db, vehicle_id, shift_date_val, shift_label, trip_sequence,
         company_id=COMPANY_ID,
         vehicle_id=vehicle_id,
         shift_date=shift_date_val,
-        shift_label=shift_label,
         trip_sequence=trip_sequence,
         depot_arrival_time=depot_arrival_time,
         depot_loading_duration_min=depot_loading_duration_min,
@@ -142,7 +140,7 @@ def seed_schedules(db):
     # 80'/70' buffer), KHÔNG được rút ngắn tuỳ tiện (bug thật gặp ở bản đầu:
     # buffer 60'/50'/40' khiến điểm 3 tự breach ngay cả không có time-drift).
     _upsert_schedule(
-        db, "B01", today, "ca_sang", 1,
+        db, "B01", today, 1,
         depot_arrival_time=time(6, 30), depot_loading_duration_min=30,
         stops=[
             _stop(1, "144 Xuân Thủy, Cầu Giấy", "Cầu Giấy", "DH-101", "Nguyễn Thị Lan", "0987001101", _t(now, 30), _t(now, 120), "thuong"),
@@ -155,7 +153,7 @@ def seed_schedules(db):
     # KB2 — B03, road_block/road_closed: stop1 deadline chỉ còn 25' (< 30) ->
     # critical dù road_closed nền đã là serious.
     _upsert_schedule(
-        db, "B03", today, "ca_chieu", 1,
+        db, "B03", today, 1,
         stops=[
             _stop(1, "200 Minh Khai, Hai Bà Trưng", "Hai Bà Trưng", "DH-201", "Phạm Văn Đức", "0987002101", _t(now, -5), _t(now, 25), "thuong"),
             _stop(2, "45 Tam Trinh, Hoàng Mai", "Hoàng Mai", "DH-202", "Ngô Thị Hằng", "0987002102", _t(now, 35), _t(now, 85), "thuong"),
@@ -166,7 +164,7 @@ def seed_schedules(db):
     # KB3 — B02, customer_reject/customer_absent: buffer rộng (135'), không
     # priority -> giữ warning, đối trọng với KB1/KB2.
     _upsert_schedule(
-        db, "B02", today, "ca_sang", 1,
+        db, "B02", today, 1,
         stops=[
             _stop(1, "88 Tây Sơn, Đống Đa", "Đống Đa", "DH-300", "Khách đã giao", "0900000000", _t(now, -30), _t(now, 30), "thuong"),
             _stop(2, "25 Nguyễn Trãi, Thanh Xuân", "Thanh Xuân", "DH-301", "Vũ Văn Long", "0912345678", _t(now, -5), _t(now, 135), "thuong"),
@@ -178,7 +176,7 @@ def seed_schedules(db):
     # KB4 — B04, customer_change/cancel_order: priority_tier=hop_dong_phat,
     # sla_penalty 600k -> has_priority_order=True -> escalate serious.
     _upsert_schedule(
-        db, "B04", today, "ca_chieu", 1,
+        db, "B04", today, 1,
         stops=[
             _stop(1, "10 Hàng Bài, Hoàn Kiếm", "Hoàn Kiếm", "DH-401", "Đỗ Thị Nga", "0909112233", _t(now, -5), _t(now, 95), "hop_dong_phat", volume_kg=8, sla_penalty=600000),
         ],
@@ -188,7 +186,7 @@ def seed_schedules(db):
     # KB5 — C02, vehicle_issue/major_breakdown: stop1 deadline 70' (30-90) ->
     # sàn serious, trùng đúng nền cố định major_breakdown.
     _upsert_schedule(
-        db, "C02", today, "ca_sang", 1,
+        db, "C02", today, 1,
         stops=[
             _stop(1, "30 Ngô Gia Tự, Long Biên", "Long Biên", "DH-501", "Bùi Văn Tùng", "0987005101", _t(now, 25), _t(now, 70), "thuong", volume_kg=55),
             _stop(2, "12 Nguyễn Sơn, Long Biên", "Long Biên", "DH-502", "Trịnh Thị Yến", "0987005102", _t(now, 55), _t(now, 160), "thuong", volume_kg=20),
@@ -201,7 +199,7 @@ def seed_schedules(db):
     # (chuyến 1 đã dùng ở KB1) và C02 (chuyến 1 đã dùng ở KB5) để không đụng
     # UNIQUE constraint.
     _upsert_schedule(
-        db, "B01", today, "ca_sang", 2,
+        db, "B01", today, 2,
         stops=[
             _stop(1, "40 Cầu Giấy", "Cầu Giấy", "DH-601", "Nguyễn Văn Kiên", "0987006010", _t(now, 20), _t(now, 60), "thuong"),
             _stop(2, "88 Trần Đăng Ninh, Cầu Giấy", "Cầu Giấy", "DH-602", "Hồ Thị Vân", "0987006020", _t(now, 50), _t(now, 105), "thuong"),
@@ -209,7 +207,7 @@ def seed_schedules(db):
     )
     n += 1
     _upsert_schedule(
-        db, "C02", today, "ca_sang", 2,
+        db, "C02", today, 2,
         stops=[
             _stop(1, "15 Trần Hữu Dực, Nam Từ Liêm", "Nam Từ Liêm", "DH-603", "Lương Văn Phúc", "0987006030", _t(now, 20), _t(now, 75), "vip", volume_kg=45),
         ],

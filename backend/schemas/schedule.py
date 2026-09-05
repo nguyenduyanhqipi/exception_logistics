@@ -50,7 +50,6 @@ class StopCreate(BaseModel):
 class ScheduleCreate(BaseModel):
     vehicle_id: str = Field(min_length=1)
     shift_date: date
-    shift_label: str
     trip_sequence: int = 1
     depot_arrival_time: Optional[time] = None
     depot_loading_duration_min: Optional[int] = None
@@ -73,7 +72,6 @@ class ScheduleResponse(BaseModel):
     schedule_id: UUID
     vehicle_id: str
     shift_date: date
-    shift_label: str
     trip_sequence: int
     depot_arrival_time: Optional[time]
     depot_loading_duration_min: Optional[int]

@@ -44,7 +44,7 @@ db.commit()
 
 SINGLE_SCENARIOS = [
     dict(
-        name="KB1 late_departure (serious)", vehicle_id="B01", shift_label="ca_sang", sub_type="late_departure", exception_group="delay",
+        name="KB1 late_departure (serious)", vehicle_id="B01", sub_type="late_departure", exception_group="delay",
         stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "144 Xuan Thuy, Cau Giay", "area": "Cau Giay", "order_id": "DH-101", "eta": "07:30", "sla_deadline": "09:00", "priority_tier": "thuong"},
             {"stop_id": "s2", "stop_order": 2, "stop_type": "giao_hang", "address": "72 Ho Tung Mau, Nam Tu Liem", "area": "Nam Tu Liem", "order_id": "DH-102", "eta": "08:10", "sla_deadline": "09:30", "priority_tier": "thuong"},
@@ -53,7 +53,7 @@ SINGLE_SCENARIOS = [
         area="Cau Giay", now_hm=(7, 45), from_stop_order=1, delay_minutes=45,
     ),
     dict(
-        name="KB2 road_closed (critical)", vehicle_id="B03", shift_label="ca_chieu", sub_type="road_closed", exception_group="road_block",
+        name="KB2 road_closed (critical)", vehicle_id="B03", sub_type="road_closed", exception_group="road_block",
         stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "200 Minh Khai, Hai Ba Trung", "area": "Hai Ba Trung", "order_id": "DH-201", "eta": "14:30", "sla_deadline": "15:00", "priority_tier": "thuong"},
             {"stop_id": "s2", "stop_order": 2, "stop_type": "giao_hang", "address": "45 Tam Trinh, Hoang Mai", "area": "Hoang Mai", "order_id": "DH-202", "eta": "15:10", "sla_deadline": "16:00", "priority_tier": "thuong"},
@@ -61,7 +61,7 @@ SINGLE_SCENARIOS = [
         area="Hai Ba Trung", now_hm=(14, 35), from_stop_order=1, delay_minutes=0,
     ),
     dict(
-        name="KB3 customer_absent (warning)", vehicle_id="B02", shift_label="ca_sang", sub_type="customer_absent", exception_group="customer_reject",
+        name="KB3 customer_absent (warning)", vehicle_id="B02", sub_type="customer_absent", exception_group="customer_reject",
         stops=[
             {"stop_id": "s2", "stop_order": 2, "stop_type": "giao_hang", "address": "25 Nguyen Trai, Thanh Xuan", "area": "Thanh Xuan", "order_id": "DH-301", "eta": "09:40", "sla_deadline": "12:00", "priority_tier": "thuong"},
             {"stop_id": "s3", "stop_order": 3, "stop_type": "giao_hang", "address": "50 Le Trong Tan, Thanh Xuan", "area": "Thanh Xuan", "order_id": "DH-302", "eta": "10:20", "sla_deadline": "13:00", "priority_tier": "thuong"},
@@ -69,14 +69,14 @@ SINGLE_SCENARIOS = [
         area="Thanh Xuan", now_hm=(9, 45), from_stop_order=2, delay_minutes=0,
     ),
     dict(
-        name="KB4 cancel_order (serious)", vehicle_id="B04", shift_label="ca_chieu", sub_type="cancel_order", exception_group="customer_change",
+        name="KB4 cancel_order (serious)", vehicle_id="B04", sub_type="cancel_order", exception_group="customer_change",
         stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "10 Hang Bai, Hoan Kiem", "area": "Hoan Kiem", "order_id": "DH-401", "eta": "13:50", "sla_deadline": "15:30", "priority_tier": "hop_dong_phat", "sla_penalty": 600000},
         ],
         area="Hoan Kiem", now_hm=(13, 55), from_stop_order=1, delay_minutes=0,
     ),
     dict(
-        name="KB5 major_breakdown (serious)", vehicle_id="C02", shift_label="ca_sang", sub_type="major_breakdown", exception_group="vehicle_issue",
+        name="KB5 major_breakdown (serious)", vehicle_id="C02", sub_type="major_breakdown", exception_group="vehicle_issue",
         stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "30 Ngo Gia Tu, Long Bien", "area": "Long Bien", "order_id": "DH-501", "eta": "10:15", "sla_deadline": "11:00", "priority_tier": "thuong", "volume_kg": 55},
             {"stop_id": "s2", "stop_order": 2, "stop_type": "giao_hang", "address": "12 Nguyen Son, Long Bien", "area": "Long Bien", "order_id": "DH-502", "eta": "10:45", "sla_deadline": "12:30", "priority_tier": "thuong", "volume_kg": 20},
@@ -93,7 +93,7 @@ bonus_sched_ids = []
 
 # ---- 5 kịch bản độc lập ----
 for sc in SINGLE_SCENARIOS:
-    schedule = Schedule(company_id=company_id, vehicle_id=sc["vehicle_id"], shift_date=date.today(), shift_label=sc["shift_label"], stops=sc["stops"])
+    schedule = Schedule(company_id=company_id, vehicle_id=sc["vehicle_id"], shift_date=date.today(), stops=sc["stops"])
     db.add(schedule)
     db.flush()
     created_schedules.append(schedule.schedule_id)
@@ -123,8 +123,8 @@ stops_a = [
 stops_b = [
     {"stop_id": "b1", "stop_order": 1, "stop_type": "giao_hang", "address": "15 Tran Huu Duc, Nam Tu Liem", "area": "Nam Tu Liem", "order_id": "DH-603", "eta": "10:30", "sla_deadline": "11:15", "priority_tier": "vip"},
 ]
-sched_a = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), shift_label="ca_sang", trip_sequence=2, stops=stops_a)
-sched_b = Schedule(company_id=company_id, vehicle_id="C02", shift_date=date.today(), shift_label="ca_sang", trip_sequence=2, stops=stops_b)
+sched_a = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), trip_sequence=2, stops=stops_a)
+sched_b = Schedule(company_id=company_id, vehicle_id="C02", shift_date=date.today(), trip_sequence=2, stops=stops_b)
 db.add_all([sched_a, sched_b])
 db.flush()
 bonus_sched_ids = [sched_a.schedule_id, sched_b.schedule_id]

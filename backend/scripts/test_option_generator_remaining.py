@@ -30,8 +30,7 @@ db.commit()
 SCENARIOS = [
     dict(
         name="Kịch bản 2 — road_block/road_closed (kỳ vọng: critical)",
-        vehicle_id="B03", shift_label="ca_chieu",
-        stops=[
+        vehicle_id="B03", stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "200 Minh Khai, Hai Ba Trung", "area": "Hai Ba Trung", "order_id": "DH-201", "eta": "14:30", "sla_deadline": "15:00", "priority_tier": "thuong"},
             {"stop_id": "s2", "stop_order": 2, "stop_type": "giao_hang", "address": "45 Tam Trinh, Hoang Mai", "area": "Hoang Mai", "order_id": "DH-202", "eta": "15:10", "sla_deadline": "16:00", "priority_tier": "thuong"},
         ],
@@ -42,8 +41,7 @@ SCENARIOS = [
     ),
     dict(
         name="Kịch bản 3 — customer_reject/customer_absent (kỳ vọng: warning)",
-        vehicle_id="B02", shift_label="ca_sang",
-        stops=[
+        vehicle_id="B02", stops=[
             {"stop_id": "s2", "stop_order": 2, "stop_type": "giao_hang", "address": "25 Nguyen Trai, Thanh Xuan", "area": "Thanh Xuan", "order_id": "DH-301", "eta": "09:40", "sla_deadline": "12:00", "priority_tier": "thuong", "notes": "Khong co ai o nha, lan giao dau tien"},
             {"stop_id": "s3", "stop_order": 3, "stop_type": "giao_hang", "address": "50 Le Trong Tan, Thanh Xuan", "area": "Thanh Xuan", "order_id": "DH-302", "eta": "10:20", "sla_deadline": "13:00", "priority_tier": "thuong"},
         ],
@@ -54,8 +52,7 @@ SCENARIOS = [
     ),
     dict(
         name="Kịch bản 4 — customer_change/cancel_order (kỳ vọng: serious)",
-        vehicle_id="B04", shift_label="ca_chieu",
-        stops=[
+        vehicle_id="B04", stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "10 Hang Bai, Hoan Kiem", "area": "Hoan Kiem", "order_id": "DH-401", "eta": "13:50", "sla_deadline": "15:30", "priority_tier": "hop_dong_phat", "sla_penalty": 600000, "volume_kg": 8, "cargo_type": "normal"},
         ],
         exception_group="customer_change", sub_type="cancel_order",
@@ -65,8 +62,7 @@ SCENARIOS = [
     ),
     dict(
         name="Kịch bản 5 — vehicle_issue/major_breakdown (kỳ vọng: serious)",
-        vehicle_id="C02", shift_label="ca_sang",
-        stops=[
+        vehicle_id="C02", stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "30 Ngo Gia Tu, Long Bien", "area": "Long Bien", "order_id": "DH-501", "eta": "10:15", "sla_deadline": "11:00", "priority_tier": "thuong", "volume_kg": 55, "cargo_type": "normal"},
             {"stop_id": "s2", "stop_order": 2, "stop_type": "giao_hang", "address": "12 Nguyen Son, Long Bien", "area": "Long Bien", "order_id": "DH-502", "eta": "10:45", "sla_deadline": "12:30", "priority_tier": "thuong", "volume_kg": 20, "cargo_type": "normal"},
         ],
@@ -84,7 +80,7 @@ for sc in SCENARIOS:
     print(sc["name"])
     print("=" * 90)
 
-    schedule = Schedule(company_id=company_id, vehicle_id=sc["vehicle_id"], shift_date=date.today(), shift_label=sc["shift_label"], stops=sc["stops"])
+    schedule = Schedule(company_id=company_id, vehicle_id=sc["vehicle_id"], shift_date=date.today(), stops=sc["stops"])
     db.add(schedule)
     db.flush()
 

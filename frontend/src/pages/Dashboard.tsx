@@ -5,7 +5,6 @@ import { apiClient, apiErrorMessage } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import type {
   DashboardOpenException,
-  DashboardShift,
   DashboardToday,
   DashboardTrip,
   DashboardVehicle,
@@ -16,12 +15,7 @@ import { BlockingExceptions } from "../components/BlockingExceptions";
 import { subTypeLabel } from "../labels";
 import { EXCEPTION_STATUS_LABEL as STATUS_LABEL, SEVERITY_LABEL } from "../statusLabels";
 
-const SHIFT_LABEL: Record<string, string> = { ca_sang: "Ca sáng", ca_chieu: "Ca chiều", ca_dem: "Ca đêm" };
 const PRIORITY_LABEL: Record<string, string> = { thuong: "Thường", vip: "VIP", hop_dong_phat: "Hợp đồng phạt" };
-
-function shiftLabel(s: string) {
-  return SHIFT_LABEL[s] ?? s;
-}
 
 /** "01:40:00" -> "01:40". Backend trả giờ dạng ISO đầy đủ sau khi 1 đơn được
  *  sửa qua `POST /api/schedules/{id}/stops` (pydantic `time` serialize kèm
@@ -54,7 +48,6 @@ interface VehicleMatch {
   /** Tỷ lệ độ dài chuỗi tìm / độ dài chuỗi khớp — dài hơn (gần đúng hơn) xếp trên. */
   closeness: number;
   /** Nhánh cần bung sẵn để thấy ngay đơn khớp (chỉ khi khớp qua mã đơn). */
-  autoShift: string | null;
   autoTrip: string | null;
   autoStops: string[];
 }
@@ -69,7 +62,7 @@ interface VehicleMatch {
  */
 function matchVehicles(vehicles: DashboardVehicle[], rawQuery: string): VehicleMatch[] {
   const q = rawQuery.trim().toLowerCase();
-  if (!q) return vehicles.map((v) => ({ vehicle: v, rank: 0, closeness: 0, autoShift: null, autoTrip: null, autoStops: [] }));
+  if (!q) return vehicles.map((v) => ({ vehicle: v, rank: 0, closeness: 0, autoTrip: null, autoStops: [] }));
 
   const out: VehicleMatch[] = [];
   for (const v of vehicles) {
@@ -77,21 +70,15 @@ function matchVehicles(vehicles: DashboardVehicle[], rawQuery: string): VehicleM
     const driver = (v.driver_name ?? "").toLowerCase();
     const directHits = [plate, driver].filter((s) => s.includes(q));
 
-    let autoShift: string | null = null;
     let autoTrip: string | null = null;
     const autoStops: string[] = [];
     let bestOrder = 0;
-    for (const sh of v.shifts) {
-      for (const trip of sh.trips) {
-        for (const stop of trip.stops) {
-          if (!stop.order_id?.toLowerCase().includes(q)) continue;
-          autoStops.push(stop.stop_id);
-          if (autoShift === null) {
-            autoShift = sh.shift_label;
-            autoTrip = trip.schedule_id;
-          }
-          bestOrder = Math.max(bestOrder, q.length / stop.order_id.length);
-        }
+    for (const trip of v.trips) {
+      for (const stop of trip.stops) {
+        if (!stop.order_id?.toLowerCase().includes(q)) continue;
+        autoStops.push(stop.stop_id);
+        if (autoTrip === null) autoTrip = trip.schedule_id;
+        bestOrder = Math.max(bestOrder, q.length / stop.order_id.length);
       }
     }
 
@@ -99,9 +86,9 @@ function matchVehicles(vehicles: DashboardVehicle[], rawQuery: string): VehicleM
       const closeness = Math.max(...directHits.map((s) => q.length / s.length));
       // Xe khớp trực tiếp thì KHÔNG tự bung — người dùng đang tìm cái xe, không
       // phải một đơn cụ thể bên trong nó.
-      out.push({ vehicle: v, rank: 2, closeness, autoShift: null, autoTrip: null, autoStops: [] });
+      out.push({ vehicle: v, rank: 2, closeness, autoTrip: null, autoStops: [] });
     } else if (autoStops.length > 0) {
-      out.push({ vehicle: v, rank: 1, closeness: bestOrder, autoShift, autoTrip, autoStops });
+      out.push({ vehicle: v, rank: 1, closeness: bestOrder, autoTrip, autoStops });
     }
   }
 
@@ -116,7 +103,6 @@ export function Dashboard() {
   // Drill-down dạng accordion 4 tầng: xe -> ca -> chuyến -> đơn. Mỗi tầng chỉ
   // mở 1 mục tại một thời điểm để bảng không phình quá dài.
   const [openVehicle, setOpenVehicle] = useState<string | null>(null);
-  const [openShift, setOpenShift] = useState<string | null>(null);
   const [openTrip, setOpenTrip] = useState<string | null>(null);
   const [openStop, setOpenStop] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -135,7 +121,6 @@ export function Dashboard() {
   function toggleVehicle(vehicleId: string) {
     const next = openVehicle === vehicleId ? null : vehicleId;
     setOpenVehicle(next);
-    setOpenShift(null);
     setOpenTrip(null);
     setOpenStop(null);
   }
@@ -144,52 +129,55 @@ export function Dashboard() {
     // Xoá ô tìm kiếm -> về đúng Dashboard mặc định (thu gọn hết).
     setQuery("");
     setOpenVehicle(null);
-    setOpenShift(null);
     setOpenTrip(null);
     setOpenStop(null);
   }
 
-  // Chuyến đã hiện ở mục "Ngoại lệ chưa hoàn thành" bị loại khỏi accordion để
-  // không hiện trùng 2 chỗ. Loại theo TỪNG CHUYẾN, không theo xe — ca/chuyến
-  // khác của cùng xe vẫn phải hiện bình thường.
+  // Chuyến đã hiện ở mục "Ngoại lệ chưa hoàn thành" bị loại khỏi bảng bên dưới
+  // để không hiện trùng 2 chỗ. Loại theo TỪNG CHUYẾN, không theo xe — chuyến
+  // khác (ngày khác / số chuyến khác) của cùng xe vẫn hiện bình thường.
+  //
+  // Lọc CẢ `open_exceptions` theo `locked`, không chỉ `trips`: thiếu vế này thì
+  // ngoại lệ vẫn nhảy ra ở cột "Trạng thái" của xe dù chuyến của nó đã bị ẩn —
+  // đúng nửa còn lại của bug hiện trùng (nửa kia ở api/dashboard.py).
   const vehicles = useMemo(() => {
     const locked = new Set(data?.locked_schedule_ids ?? []);
     if (locked.size === 0) return data?.vehicles ?? [];
-    return (data?.vehicles ?? []).map((v) => {
-      const shifts = v.shifts
-        .map((sh) => {
-          const trips = sh.trips.filter((t) => !locked.has(t.schedule_id));
-          return {
-            ...sh,
-            trips,
-            trip_count: trips.length,
-            order_count: trips.reduce((n, t) => n + t.order_count, 0),
-          };
-        })
-        .filter((sh) => sh.trips.length > 0);
-      return { ...v, shifts };
-    });
+    return (data?.vehicles ?? []).map((v) => ({
+      ...v,
+      trips: v.trips.filter((t) => !locked.has(t.schedule_id)),
+      open_exceptions: v.open_exceptions.filter((e) => !locked.has(e.schedule_id)),
+    }));
   }, [data]);
 
   const matches = useMemo(() => matchVehicles(vehicles, query), [vehicles, query]);
   const searching = query.trim().length > 0;
 
   const totalOpen = vehicles.reduce((n, v) => n + v.open_exceptions.length, 0);
-  const totalOrders = vehicles.reduce((n, v) => n + v.today_order_count, 0);
+  // Đếm từ  ĐÃ LỌC locked, không dùng  của backend:
+  // chuyến bị khoá không hiện trong bảng thì đơn của nó cũng không được tính,
+  // nếu không sẽ ra kiểu "2 đơn · 0 chuyến" tự mâu thuẫn.
+  const totalOrders = vehicles.reduce((n, v) => n + v.trips.reduce((m, t) => m + t.order_count, 0), 0);
+
+  // Ngày có kế hoạch, lấy từ `data` GỐC chứ không phải `vehicles` đã lọc
+  // locked: chuyến đang bị ngoại lệ khoá vẫn là kế hoạch phải xoá được.
+  const planDates = useMemo(
+    () => [...new Set((data?.vehicles ?? []).flatMap((v) => v.trips.map((t) => t.shift_date)))].sort(),
+    [data],
+  );
 
   return (
     <div className="page">
       {data && <BlockingExceptions items={data.blocking ?? []} />}
 
-      <h1>Hoạt động hôm nay</h1>
+      <h1>Kế hoạch &amp; hoạt động</h1>
       <div className="dash-head">
         {data && (
           <p className="drill-summary" style={{ margin: 0 }}>
-            Ngày {data.shift_date} · Ca hiện tại: <strong>{shiftLabel(data.current_shift_label)}</strong> ·{" "}
             {vehicles.length} xe · {totalOrders} đơn · {totalOpen} ngoại lệ đang mở
           </p>
         )}
-        <DeleteScheduleMenu />
+        <DeleteScheduleMenu dates={planDates} />
       </div>
 
       <div className="search-bar">
@@ -215,11 +203,11 @@ export function Dashboard() {
       )}
 
       <div className="card" style={{ padding: 0 }}>
-        {isLoading && <div className="loading-spinner">Đang tải hoạt động hôm nay...</div>}
-        {isError && <div className="error-banner" style={{ margin: 16 }}>Không tải được hoạt động hôm nay.</div>}
+        {isLoading && <div className="loading-spinner">Đang tải kế hoạch...</div>}
+        {isError && <div className="error-banner" style={{ margin: 16 }}>Không tải được kế hoạch.</div>}
         {data && vehicles.length === 0 && (
           <div className="loading-spinner">
-            Hôm nay chưa có xe nào có kế hoạch chạy. Nhập kế hoạch ở mục "Xe & Kế hoạch".
+            Chưa có kế hoạch nào. Nhập kế hoạch ở mục "Xe & Kế hoạch".
           </div>
         )}
         {data && vehicles.length > 0 && matches.length === 0 && (
@@ -232,7 +220,7 @@ export function Dashboard() {
                 <th style={{ width: 28 }}></th>
                 <th>Xe</th>
                 <th>Tài xế</th>
-                <th>Đơn ca hiện tại</th>
+                <th>Số đơn</th>
                 <th>Trạng thái</th>
                 <th style={{ width: 150 }}>Thao tác</th>
               </tr>
@@ -245,12 +233,6 @@ export function Dashboard() {
                   match={m}
                   expanded={openVehicle === m.vehicle.vehicle_id || m.autoStops.length > 0}
                   onToggle={() => toggleVehicle(m.vehicle.vehicle_id)}
-                  openShift={openShift}
-                  setOpenShift={(s) => {
-                    setOpenShift(s);
-                    setOpenTrip(null);
-                    setOpenStop(null);
-                  }}
                   openTrip={openTrip}
                   setOpenTrip={(t) => {
                     setOpenTrip(t);
@@ -277,8 +259,6 @@ interface VehicleRowsProps {
   match: VehicleMatch;
   expanded: boolean;
   onToggle: () => void;
-  openShift: string | null;
-  setOpenShift: (s: string | null) => void;
   openTrip: string | null;
   setOpenTrip: (t: string | null) => void;
   openStop: string | null;
@@ -292,8 +272,6 @@ function VehicleRows({
   match,
   expanded,
   onToggle,
-  openShift,
-  setOpenShift,
   openTrip,
   setOpenTrip,
   openStop,
@@ -301,9 +279,8 @@ function VehicleRows({
   onOpenException,
   onQuickCreate,
 }: VehicleRowsProps) {
-  // Khi tìm thấy đơn hàng trong 1 chuyến đang thu gọn, nhánh xe -> ca -> chuyến
-  // -> đơn đó tự bung để thấy ngay (việc 3), không bắt bấm mở từng cấp.
-  const isShiftOpen = (label: string) => openShift === `${v.vehicle_id}::${label}` || match.autoShift === label;
+  // Khi tìm thấy đơn hàng trong 1 chuyến đang thu gọn, nhánh xe -> chuyến -> đơn
+  // đó tự bung để thấy ngay, không bắt bấm mở từng cấp.
   const isTripOpen = (scheduleId: string) => openTrip === scheduleId || match.autoTrip === scheduleId;
   const isStopOpen = (stopId: string) => openStop === stopId || match.autoStops.includes(stopId);
 
@@ -320,8 +297,8 @@ function VehicleRows({
           {v.driver_phone && <span className="drill-muted"> · {v.driver_phone}</span>}
         </td>
         <td>
-          {v.current_shift_order_count} đơn
-          <span className="drill-muted"> (hôm nay: {v.today_order_count})</span>
+          {v.trips.reduce((n, t) => n + t.order_count, 0)} đơn
+          <span className="drill-muted"> · {v.trips.length} chuyến</span>
         </td>
         <td>
           {v.open_exceptions.length === 0 ? (
@@ -371,93 +348,68 @@ function VehicleRows({
       {expanded && (
         <tr className="drill-row">
           <td colSpan={6}>
-            {v.shifts.length === 0 && <div className="drill-empty">Xe này hôm nay không có ca chạy nào.</div>}
-            {v.shifts.map((sh: DashboardShift) => {
-              const shiftKey = `${v.vehicle_id}::${sh.shift_label}`;
-              const shiftOpen = isShiftOpen(sh.shift_label);
+            {v.trips.length === 0 && <div className="drill-empty">Xe này chưa có chuyến nào.</div>}
+            {v.trips.map((trip) => {
+              const tripOpen = isTripOpen(trip.schedule_id);
+              const tripExc = v.open_exceptions.filter((e) => e.schedule_id === trip.schedule_id);
               return (
-                <div className="drill-level" key={shiftKey}>
+                <div className="drill-level" key={trip.schedule_id}>
                   <button
                     type="button"
                     className="drill-head"
-                    onClick={() => setOpenShift(shiftOpen ? null : shiftKey)}
+                    onClick={() => setOpenTrip(tripOpen ? null : trip.schedule_id)}
                   >
-                    {shiftOpen ? "▾" : "▸"} {shiftLabel(sh.shift_label)}
+                    {tripOpen ? "▾" : "▸"} {trip.shift_date} · Chuyến {trip.trip_sequence}
                     <span className="drill-muted">
                       {" "}
-                      · {sh.trip_count} chuyến · {sh.order_count} đơn
+                      · {trip.order_count} đơn
+                      {trip.planned_departure_time ? ` · xuất phát ${hhmm(trip.planned_departure_time)}` : ""}
                     </span>
+                    {tripExc.length > 0 && (
+                      <span className="badge badge-pending" style={{ marginLeft: 8 }}>
+                        {tripExc.length} ngoại lệ mở
+                      </span>
+                    )}
                   </button>
 
-                  {shiftOpen &&
-                    sh.trips.map((trip) => {
-                      const tripOpen = isTripOpen(trip.schedule_id);
-                      const tripExc = v.open_exceptions.filter((e) => e.schedule_id === trip.schedule_id);
-                      return (
-                        <div className="drill-level" key={trip.schedule_id}>
-                          <button
-                            type="button"
-                            className="drill-head"
-                            onClick={() => setOpenTrip(tripOpen ? null : trip.schedule_id)}
-                          >
-                            {tripOpen ? "▾" : "▸"} Chuyến {trip.trip_sequence}
-                            <span className="drill-muted">
-                              {" "}
-                              · {trip.order_count} đơn
-                              {trip.planned_departure_time
-                                ? ` · xuất phát ${hhmm(trip.planned_departure_time)}`
-                                : ""}
-                            </span>
-                            {tripExc.length > 0 && (
-                              <span className="badge badge-pending" style={{ marginLeft: 8 }}>
-                                {tripExc.length} ngoại lệ mở
+                  {tripOpen && (
+                    <div className="drill-level">
+                      {trip.stops.length === 0 && <div className="drill-empty">Chuyến này chưa có đơn nào.</div>}
+                      {trip.stops.map((stop) => {
+                        const stopOpen = isStopOpen(stop.stop_id);
+                        const stopExc = exceptionsForStop(v, trip, stop);
+                        return (
+                          <div key={stop.stop_id}>
+                            <button
+                              type="button"
+                              className="drill-head"
+                              onClick={() => setOpenStop(stopOpen ? null : stop.stop_id)}
+                            >
+                              {stopOpen ? "▾" : "▸"} #{stop.stop_order} · {stop.order_id}
+                              <span className="drill-muted">
+                                {" "}
+                                · {stop.address} · ETA {hhmm(stop.eta)} · SLA {hhmm(stop.sla_deadline)}
                               </span>
-                            )}
-                          </button>
-
-                          {tripOpen && (
-                            <div className="drill-level">
-                              {trip.stops.length === 0 && (
-                                <div className="drill-empty">Chuyến này chưa có đơn nào.</div>
+                              {stopExc.length > 0 && (
+                                <span className="badge badge-critical" style={{ marginLeft: 8 }}>
+                                  Có ngoại lệ
+                                </span>
                               )}
-                              {trip.stops.map((stop) => {
-                                const stopOpen = isStopOpen(stop.stop_id);
-                                const stopExc = exceptionsForStop(v, trip, stop);
-                                return (
-                                  <div key={stop.stop_id}>
-                                    <button
-                                      type="button"
-                                      className="drill-head"
-                                      onClick={() => setOpenStop(stopOpen ? null : stop.stop_id)}
-                                    >
-                                      {stopOpen ? "▾" : "▸"} #{stop.stop_order} · {stop.order_id}
-                                      <span className="drill-muted">
-                                        {" "}
-                                        · {stop.address} · ETA {hhmm(stop.eta)} · SLA {hhmm(stop.sla_deadline)}
-                                      </span>
-                                      {stopExc.length > 0 && (
-                                        <span className="badge badge-critical" style={{ marginLeft: 8 }}>
-                                          Có ngoại lệ
-                                        </span>
-                                      )}
-                                    </button>
+                            </button>
 
-                                    {stopOpen && (
-                                      <StopDetail
-                                        scheduleId={trip.schedule_id}
-                                        stop={stop}
-                                        exceptions={stopExc}
-                                        onOpenException={onOpenException}
-                                      />
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            {stopOpen && (
+                              <StopDetail
+                                scheduleId={trip.schedule_id}
+                                stop={stop}
+                                exceptions={stopExc}
+                                onOpenException={onOpenException}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -700,40 +652,28 @@ function StopEditForm({ scheduleId, stop, onDone }: { scheduleId: string; stop: 
 }
 
 
-const SHIFT_OPTIONS = [
-  { value: "ca_sang", label: "Ca sáng" },
-  { value: "ca_chieu", label: "Ca chiều" },
-  { value: "ca_dem", label: "Ca đêm" },
-];
-
-/** Nút "Xoá kế hoạch" + popover chọn ngày/ca, đặt cùng hàng với dòng tóm tắt
- *  ở đầu Dashboard (2026-09-04).
+/** Nút "Xoá kế hoạch" + popover, đặt cùng hàng với dòng tóm tắt đầu Dashboard.
  *
- *  Logic gọi API giữ NGUYÊN từ ScheduleInput.tsx::DeleteScheduleByShift —
- *  chỉ đổi chỗ đứng: xoá kế hoạch là việc điều phối viên làm khi nhìn thấy dữ
- *  liệu hôm nay bị sai, tức là đang ở Dashboard, không phải khi đang nhập kế
- *  hoạch mới.
+ *  Ngày chọn từ <select> liệt kê ĐÚNG các ngày đang thực sự có kế hoạch (derive
+ *  từ `trips[].shift_date`), không phải ô nhập ngày tự do — chọn 1 ngày không
+ *  có dữ liệu chỉ để nhận về lỗi 404 là thao tác thừa.
  *
- *  Backend (`DELETE /api/schedules?shift_date=&shift_label=`) chặn nếu còn
- *  ngoại lệ CHƯA giải quyết trỏ tới các chuyến đó — thông báo 409 trả về đã
- *  ghi rõ số lượng và cách xử lý, hiển thị nguyên văn cho người dùng.
+ *  Backend xoá KHÔNG ĐIỀU KIỆN (2026-09-05) và chỉ đụng bảng `schedules` —
+ *  ngoại lệ chưa xử lý xong vẫn nguyên, vẫn hiện ở "Ngoại lệ chưa hoàn thành".
  */
-function DeleteScheduleMenu() {
+function DeleteScheduleMenu({ dates }: { dates: string[] }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [shiftDate, setShiftDate] = useState("");
-  const [shiftLabel, setShiftLabel] = useState("ca_sang");
-  const [confirming, setConfirming] = useState(false);
+  // "one" = xoá 1 ngày, "all" = xoá tất cả — 2 bước xác nhận khác nhau.
+  const [confirming, setConfirming] = useState<null | "one" | "all">(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const shiftText = SHIFT_OPTIONS.find((o) => o.value === shiftLabel)?.label ?? shiftLabel;
-
   // Bấm ra ngoài thì đóng popover — nhưng KHÔNG đóng khi hộp xác nhận đang mở,
-  // vì hộp đó render ngoài `wrapRef` (overlay toàn màn hình) nên mọi cú bấm
-  // vào nó đều bị tính là "bấm ra ngoài".
+  // vì hộp đó render ngoài `wrapRef` (overlay toàn màn hình).
   useEffect(() => {
     if (!open || confirming) return;
     function onDocClick(e: MouseEvent) {
@@ -743,40 +683,42 @@ function DeleteScheduleMenu() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open, confirming]);
 
-  async function handleDelete() {
+  useEffect(() => {
+    // Ngày đang chọn biến mất khỏi danh sách (vừa bị xoá) -> bỏ chọn.
+    if (shiftDate && !dates.includes(shiftDate)) setShiftDate("");
+  }, [dates, shiftDate]);
+
+  async function handleDelete(scope: "one" | "all") {
     setBusy(true);
     setError(null);
     setResult(null);
     try {
       const res = await apiClient.delete("/api/schedules", {
-        params: { shift_date: shiftDate, shift_label: shiftLabel },
+        // Không truyền shift_date = xoá tất cả mọi ngày (xem
+        // api/schedules.py::delete_schedules).
+        params: scope === "one" ? { shift_date: shiftDate } : {},
       });
-      setConfirming(false);
+      setConfirming(null);
       const vehicles: string[] = res.data.vehicles ?? [];
-      const skipped: { vehicle_id: string; reason: string }[] = res.data.skipped ?? [];
-      const parts = [
-        `Đã xoá ${res.data.deleted} chuyến của ngày ${shiftDate} ${shiftText}` +
-          (vehicles.length > 0 ? ` (xe: ${vehicles.join(", ")})` : "") +
+      const days: string[] = res.data.dates ?? [];
+      setResult(
+        `Đã xoá ${res.data.deleted} chuyến` +
+          (days.length > 0 ? ` thuộc ${days.length} ngày (${days.join(", ")})` : "") +
+          (vehicles.length > 0 ? `, xe: ${vehicles.join(", ")}` : "") +
           ".",
-      ];
-      if (skipped.length > 0) {
-        // Backend nay xoá THEO TỪNG XE, giữ lại xe còn ngoại lệ chưa xong —
-        // phải nói rõ giữ xe nào, nếu không người dùng tưởng đã xoá sạch.
-        const names = [...new Set(skipped.map((s) => s.vehicle_id))].join(", ");
-        parts.push(`Giữ lại ${skipped.length} chuyến (xe: ${names}) vì ${skipped[0].reason}.`);
-      }
-      setResult(parts.join(" "));
+      );
       queryClient.invalidateQueries({ queryKey: ["schedules"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-today"] });
-      // Xoá xong thì đóng popover; thông báo kết quả hiện ngay dưới nút.
       setOpen(false);
     } catch (err) {
-      setConfirming(false);
+      setConfirming(null);
       setError(apiErrorMessage(err));
     } finally {
       setBusy(false);
     }
   }
+
+  const totalTrips = dates.length;
 
   return (
     <div className="dash-head-actions" ref={wrapRef}>
@@ -794,47 +736,68 @@ function DeleteScheduleMenu() {
 
       {open && (
         <div className="popover">
-          <h3 className="popover-title">Xoá kế hoạch theo ngày + ca</h3>
+          <h3 className="popover-title">Xoá kế hoạch</h3>
           <p className="drill-muted" style={{ marginTop: 0 }}>
-            Xoá toàn bộ chuyến của mọi xe trong đúng ngày và ca đã chọn. Không xoá được nếu còn ngoại lệ chưa giải
-            quyết gắn với các chuyến đó.
+            Chỉ xoá kế hoạch. Ngoại lệ đã ghi nhận vẫn giữ nguyên, vẫn xử lý/nhập kết quả được bình thường.
           </p>
           {error && <div className="error-banner">{error}</div>}
-          <div className="form-field" style={{ marginBottom: 10 }}>
-            <label>Ngày cần xoá</label>
-            <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} />
-          </div>
-          <div className="form-field" style={{ marginBottom: 12 }}>
-            <label>Ca</label>
-            <select value={shiftLabel} onChange={(e) => setShiftLabel(e.target.value)}>
-              {SHIFT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="danger" disabled={!shiftDate || busy} onClick={() => setConfirming(true)}>
-              Xoá kế hoạch
-            </button>
-            <button type="button" className="secondary" disabled={busy} onClick={() => setOpen(false)}>
-              Đóng
-            </button>
-          </div>
+
+          {dates.length === 0 ? (
+            <div className="drill-muted">Chưa có kế hoạch nào để xoá.</div>
+          ) : (
+            <>
+              <div className="form-field" style={{ marginBottom: 12 }}>
+                <label>Ngày cần xoá</label>
+                <select value={shiftDate} onChange={(e) => setShiftDate(e.target.value)}>
+                  <option value="">-- Chọn ngày --</option>
+                  {dates.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={!shiftDate || busy}
+                  onClick={() => setConfirming("one")}
+                >
+                  Xoá ngày đã chọn
+                </button>
+                <button type="button" className="danger" disabled={busy} onClick={() => setConfirming("all")}>
+                  Xoá tất cả kế hoạch
+                </button>
+                <button type="button" className="secondary" disabled={busy} onClick={() => setOpen(false)}>
+                  Đóng
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {result && <div className="success-banner dash-head-result">{result}</div>}
 
-      {confirming && (
+      {confirming === "one" && (
         <ConfirmDialog
-          title="Xoá kế hoạch?"
-          message={`Toàn bộ chuyến của MỌI XE trong ngày ${shiftDate} — ${shiftText} sẽ bị xoá khỏi hệ thống (xoá mềm). Bạn có chắc không?`}
+          title="Xoá kế hoạch ngày này?"
+          message={`Toàn bộ chuyến của MỌI XE trong ngày ${shiftDate} sẽ bị xoá khỏi hệ thống (xoá mềm). Bạn có chắc không?`}
           confirmLabel="Có, xoá"
           busy={busy}
-          onConfirm={handleDelete}
-          onCancel={() => setConfirming(false)}
+          onConfirm={() => handleDelete("one")}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
+      {confirming === "all" && (
+        <ConfirmDialog
+          title="Xoá TẤT CẢ kế hoạch?"
+          message={`Sẽ xoá toàn bộ kế hoạch của MỌI XE trên ${totalTrips} ngày (${dates.join(", ")}). Đây là thao tác trên toàn bộ dữ liệu kế hoạch, không chỉ 1 ngày. Bạn có chắc không?`}
+          confirmLabel="Có, xoá tất cả"
+          busy={busy}
+          onConfirm={() => handleDelete("all")}
+          onCancel={() => setConfirming(null)}
         />
       )}
     </div>

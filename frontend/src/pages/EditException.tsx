@@ -193,7 +193,7 @@ export function EditException() {
           <div className="form-field">
             <label>Chuyến (không đổi được)</label>
             <div className="drill-muted">
-              {schedule.vehicle_id} — {schedule.shift_date} {schedule.shift_label} (chuyến {schedule.trip_sequence})
+              {schedule.vehicle_id} — {schedule.shift_date} (chuyến {schedule.trip_sequence})
             </div>
           </div>
         )}

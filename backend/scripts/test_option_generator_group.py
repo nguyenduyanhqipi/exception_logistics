@@ -44,8 +44,8 @@ stops_b = [
     {"stop_id": "b1", "stop_order": 1, "stop_type": "giao_hang", "address": "15 Tran Huu Duc, Nam Tu Liem", "area": "Nam Tu Liem", "order_id": "DH-603", "eta": "10:30", "sla_deadline": "11:15", "priority_tier": "vip"},
 ]
 
-sched_a = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), shift_label="ca_sang", stops=stops_a)
-sched_b = Schedule(company_id=company_id, vehicle_id="C02", shift_date=date.today(), shift_label="ca_sang", stops=stops_b)
+sched_a = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), stops=stops_a)
+sched_b = Schedule(company_id=company_id, vehicle_id="C02", shift_date=date.today(), stops=stops_b)
 db.add_all([sched_a, sched_b])
 db.flush()
 

@@ -14,8 +14,6 @@ import { EXCEPTION_STATUS_LABEL, SEVERITY_LABEL } from "../statusLabels";
 // (`locked_schedule_ids`) để không hiện trùng; các chuyến khác của cùng xe vẫn
 // hiện bình thường ở dưới.
 
-const SHIFT_LABEL: Record<string, string> = { ca_sang: "Ca sáng", ca_chieu: "Ca chiều", ca_dem: "Ca đêm" };
-
 function hhmm(t: string | null | undefined): string {
   if (!t) return "-";
   return t.length > 5 ? t.slice(0, 5) : t;
@@ -54,7 +52,7 @@ export function BlockingExceptions({ items }: { items: BlockingException[] }) {
               {EXCEPTION_STATUS_LABEL[exc.status] ?? exc.status}
             </span>
             <span className="drill-muted">
-              {exc.shift_date} · {SHIFT_LABEL[exc.shift_label] ?? exc.shift_label} · chuyến {exc.trip_sequence}
+              {exc.shift_date} · chuyến {exc.trip_sequence}
             </span>
           </div>
 

@@ -7,7 +7,6 @@ import {
   ANSWER_TO_SUBTYPE,
   EXTRA_FIELD,
   GROUP_QUESTIONS,
-  currentShiftLabel,
   localToday,
   showsCustomerDelayTolerance,
 } from "../exceptionForm";
@@ -75,9 +74,10 @@ export function NewException() {
     if (!prefillVehicleId || scheduleId || !schedules) return;
     const ofVehicle = schedules.filter((s) => s.vehicle_id === prefillVehicleId);
     if (ofVehicle.length === 0) return;
-    const shiftNow = currentShiftLabel();
-    const byShift = ofVehicle.filter((s) => s.shift_date === today && s.shift_label === shiftNow);
-    const pool = byShift.length > 0 ? byShift : ofVehicle;
+    // Không còn "ca": ưu tiên chuyến của HÔM NAY, không có thì lấy chuyến sớm
+    // nhất còn lại của xe.
+    const byToday = ofVehicle.filter((s) => s.shift_date === today);
+    const pool = byToday.length > 0 ? byToday : ofVehicle;
     const picked = [...pool].sort(
       (a, b) => a.shift_date.localeCompare(b.shift_date) || a.trip_sequence - b.trip_sequence,
     )[0];
@@ -170,7 +170,7 @@ export function NewException() {
             <option value="">-- Chọn chuyến --</option>
             {schedules?.map((s) => (
               <option key={s.schedule_id} value={s.schedule_id}>
-                {s.vehicle_id} — {s.shift_date} {s.shift_label} (chuyến {s.trip_sequence})
+                {s.vehicle_id} — {s.shift_date} (chuyến {s.trip_sequence})
               </option>
             ))}
           </select>

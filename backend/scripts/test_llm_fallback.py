@@ -38,7 +38,7 @@ db = SessionLocal()
 company_id = "00000000-0000-0000-0000-000000000001"
 user = db.query(User).filter(User.company_id == company_id).first()
 
-schedule = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), shift_label="ca_chieu", stops=[])
+schedule = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), stops=[])
 db.add(schedule)
 db.flush()
 exc = Exception_(company_id=company_id, schedule_id=schedule.schedule_id, exception_group="delay", sub_type="late_departure", severity="warning", vehicle_id="B01", reported_by=user.user_id, status="analyzing")

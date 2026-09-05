@@ -227,14 +227,18 @@ def admit_from_decision(db: Session, outcome: Outcome, key: bytes) -> "RagCaseBa
     if outcome.actual_cost is not None and option is not None and option.cost_estimate:
         cost_variance_pct = (float(outcome.actual_cost) - float(option.cost_estimate)) / float(option.cost_estimate)
 
-    area_bucket = resolve_area_bucket(db, exc.exception_group, exc.sub_type, exc.area, schedule.shift_label if schedule else None)
+    # `schedules.shift_label` đã bị bỏ (migration c8d9e0f1a2b3) — kho case
+    # dùng chung vẫn GIỮ cột `rag_case_bank.shift_label` cho case lịch sử, nên
+    # case nạp từ nay truyền None. Bucket k-anonymity vì thế THÔ HƠN (gộp mọi
+    # ca lại), tức là an toàn hơn chứ không lỏng hơn.
+    area_bucket = resolve_area_bucket(db, exc.exception_group, exc.sub_type, exc.area, None)
 
     fields = build_case_fields(
         exception_group=exc.exception_group,
         sub_type=exc.sub_type,
         severity=exc.severity,
         area_bucket=area_bucket,
-        shift_label=schedule.shift_label if schedule else None,
+        shift_label=None,
         time_to_deadline_min=time_to_deadline_min,
         downstream_stops_affected=compute_downstream_stops_affected(affected_stops),
         has_priority_order=compute_has_priority_order(affected_stops),

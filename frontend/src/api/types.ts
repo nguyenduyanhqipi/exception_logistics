@@ -47,7 +47,6 @@ export interface Schedule {
   schedule_id: string;
   vehicle_id: string;
   shift_date: string;
-  shift_label: string;
   trip_sequence: number;
   planned_departure_time: string | null;
   stops: Stop[];
@@ -161,6 +160,9 @@ export interface DashboardOpenException {
 
 export interface DashboardTrip {
   schedule_id: string;
+  /** Chuyến giờ mang ngày riêng: 1 xe có thể có chuyến ở nhiều ngày cùng lúc
+   *  (Dashboard hiện mọi kế hoạch chưa xoá, không chỉ hôm nay). */
+  shift_date: string;
   trip_sequence: number;
   depot_address: string | null;
   depot_arrival_time: string | null;
@@ -170,22 +172,15 @@ export interface DashboardTrip {
   stops: Stop[];
 }
 
-export interface DashboardShift {
-  shift_label: string;
-  trip_count: number;
-  order_count: number;
-  trips: DashboardTrip[];
-}
-
 export interface DashboardVehicle {
   vehicle_id: string;
   driver_name: string | null;
   driver_phone: string | null;
   vehicle_type: string | null;
   vehicle_status: string | null;
-  current_shift_order_count: number;
   today_order_count: number;
-  shifts: DashboardShift[];
+  /** Bỏ tầng "ca" (2026-09-05) — xe -> chuyến, mỗi chuyến tự mang shift_date. */
+  trips: DashboardTrip[];
   open_exceptions: DashboardOpenException[];
 }
 
@@ -212,14 +207,14 @@ export interface BlockingException {
   driver_name: string | null;
   schedule_id: string;
   shift_date: string;
-  shift_label: string;
   trip_sequence: number;
   orders: BlockingOrder[];
 }
 
 export interface DashboardToday {
+  /** Ngày hiện tại của máy chủ — chỉ để tham chiếu, KHÔNG còn là phạm vi lọc
+   *  (Dashboard trả mọi kế hoạch chưa xoá ở mọi ngày). */
   shift_date: string;
-  current_shift_label: string;
   server_time: string;
   vehicles: DashboardVehicle[];
   blocking: BlockingException[];

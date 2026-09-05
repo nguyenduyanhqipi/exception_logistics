@@ -39,7 +39,6 @@ export function ScheduleForm() {
 
   const [vehicleId, setVehicleId] = useState("");
   const [shiftDate, setShiftDate] = useState("");
-  const [shiftLabel, setShiftLabel] = useState("ca_sang");
   const [tripSequence, setTripSequence] = useState(1);
   const [depotArrivalTime, setDepotArrivalTime] = useState("");
   const [depotLoadingDurationMin, setDepotLoadingDurationMin] = useState("");
@@ -67,7 +66,6 @@ export function ScheduleForm() {
       await apiClient.post("/api/schedules", {
         vehicle_id: vehicleId,
         shift_date: shiftDate,
-        shift_label: shiftLabel,
         trip_sequence: tripSequence,
         depot_arrival_time: depotArrivalTime || null,
         depot_loading_duration_min: depotLoadingDurationMin ? Number(depotLoadingDurationMin) : null,
@@ -101,16 +99,8 @@ export function ScheduleForm() {
             <label>Ngày chạy</label>
             <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} required />
           </div>
-          <div className="form-field" style={{ flex: 1 }}>
-            <label>Ca</label>
-            <select value={shiftLabel} onChange={(e) => setShiftLabel(e.target.value)}>
-              <option value="ca_sang">Ca sáng</option>
-              <option value="ca_chieu">Ca chiều</option>
-              <option value="ca_dem">Ca đêm</option>
-            </select>
-          </div>
           <div className="form-field" style={{ width: 100 }}>
-            <label>Chuyến số</label>
+            <label>Chuyến thứ mấy trong ngày</label>
             <input type="number" min={1} value={tripSequence} onChange={(e) => setTripSequence(Number(e.target.value))} />
           </div>
         </div>

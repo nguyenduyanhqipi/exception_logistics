@@ -26,7 +26,6 @@ VEHICLE_REQUIRED = ["vehicle_id", "driver_name", "driver_phone", "max_payload_kg
 STOP_COLUMNS = [
     "vehicle_id",
     "shift_date",
-    "shift_label",
     "trip_sequence",
     "depot_arrival_time",
     "depot_loading_duration_min",
@@ -50,7 +49,6 @@ STOP_COLUMNS = [
 STOP_REQUIRED = [
     "vehicle_id",
     "shift_date",
-    "shift_label",
     "stop_order",
     "stop_type",
     "stop_address",
@@ -78,7 +76,6 @@ _TEXT_LIKE_NUMERIC_COLUMNS = {
     "customer_phone": str,
     "order_id": str,
     "stop_area": str,
-    "shift_label": str,
 }
 
 
@@ -181,7 +178,7 @@ def parse_schedule_sheet(file_bytes: bytes) -> tuple[list[dict], list[str]]:
     df = _read_sheet(file_bytes, "Ke_hoach_giao_hang")
     errors: list[str] = []
 
-    for col in ["vehicle_id", "shift_date", "shift_label", "trip_sequence"]:
+    for col in ["vehicle_id", "shift_date", "trip_sequence"]:
         if col in df.columns:
             df[col] = df[col].ffill()
     if "trip_sequence" in df.columns:
@@ -201,7 +198,7 @@ def parse_schedule_sheet(file_bytes: bytes) -> tuple[list[dict], list[str]]:
             if val is None or (isinstance(val, float) and pd.isna(val)) or (isinstance(val, str) and not val.strip()):
                 errors.append(f"Sheet Ke_hoach_giao_hang, hàng {row_num}, cột {field}: không được để trống")
 
-        group_key = (record.get("vehicle_id"), record.get("shift_date"), record.get("shift_label"), record.get("trip_sequence"))
+        group_key = (record.get("vehicle_id"), record.get("shift_date"), record.get("trip_sequence"))
         is_first_of_group = group_key not in depot_group_seen
         if is_first_of_group:
             depot_group_seen.add(group_key)
@@ -253,7 +250,7 @@ def parse_schedule_sheet(file_bytes: bytes) -> tuple[list[dict], list[str]]:
 
     seen_stop_orders: dict[tuple, set] = {}
     for r in rows:
-        key = (r.get("vehicle_id"), r.get("shift_date"), r.get("shift_label"), r.get("trip_sequence"))
+        key = (r.get("vehicle_id"), r.get("shift_date"), r.get("trip_sequence"))
         seen = seen_stop_orders.setdefault(key, set())
         so = r.get("stop_order")
         if so in seen:

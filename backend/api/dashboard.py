@@ -8,7 +8,7 @@ mở ở BACKEND thay vì để frontend gọi 3 API (/api/vehicles, /api/schedu
 `GET /api/exceptions`, nên nếu join ở frontend thì vẫn phải gọi thêm
 `GET /api/exceptions/{id}` cho từng ngoại lệ.
 """
-from datetime import date, datetime, time
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -39,25 +39,6 @@ OPEN_STATUSES = ("pending", "analyzing", "awaiting_decision", "awaiting_outcome"
 # chạy, chưa cần ai làm gì — để nguyên trong "Hoạt động hôm nay".
 BLOCKING_STATUSES = ("awaiting_decision", "awaiting_outcome")
 
-# Ca hiện tại suy ra từ GIỜ MÁY CHỦ, không hardcode. Phủ kín 24h để luôn có
-# đúng 1 ca hiện tại (không có khoảng trống).
-SHIFT_WINDOWS = (
-    ("ca_sang", time(0, 0), time(11, 59, 59)),
-    ("ca_chieu", time(12, 0), time(17, 59, 59)),
-    ("ca_dem", time(18, 0), time(23, 59, 59)),
-)
-
-SHIFT_ORDER = {"ca_sang": 0, "ca_chieu": 1, "ca_dem": 2}
-
-
-def current_shift_label(now: datetime) -> str:
-    t = now.time()
-    for label, start, end in SHIFT_WINDOWS:
-        if start <= t <= end:
-            return label
-    return SHIFT_WINDOWS[-1][0]
-
-
 def _exception_to_dict(exc: Exception_, affected_stop_ids: list[str], affected_order_ids: list[str]) -> dict:
     return {
         "exception_id": str(exc.exception_id),
@@ -85,12 +66,15 @@ def dashboard_today(
 ):
     now = datetime.now()
     today: date = now.date()
-    shift_now = current_shift_label(now)
 
+    # MỌI kế hoạch chưa xoá, không chỉ hôm nay (2026-09-05): điều phối viên cần
+    # thấy cả kế hoạch ngày mai đã nhập sẵn lẫn ngày cũ chưa dọn, chứ không chỉ
+    # đúng 24h hiện tại. `shift_date` trả kèm theo TỪNG CHUYẾN vì 1 xe giờ có
+    # thể có chuyến ở nhiều ngày khác nhau cùng lúc.
     schedules = db.execute(
         select(Schedule)
-        .where(Schedule.shift_date == today, Schedule.deleted_at.is_(None))
-        .order_by(Schedule.vehicle_id, Schedule.shift_label, Schedule.trip_sequence)
+        .where(Schedule.deleted_at.is_(None))
+        .order_by(Schedule.vehicle_id, Schedule.shift_date, Schedule.trip_sequence)
     ).scalars().all()
 
     # Ngoại lệ đang mở KHÔNG lọc theo ngày: một ngoại lệ mở từ hôm qua vẫn là
@@ -111,10 +95,18 @@ def dashboard_today(
         for imp in rows:
             impacts[imp.exception_id] = imp.affected_stops or []
 
+    # Tính mục "Ngoại lệ chưa hoàn thành" TRƯỚC (2026-09-05, sửa bug hiện trùng):
+    # ngoại lệ nào đã nằm ở mục đó thì KHÔNG lặp lại ở cột trạng thái của xe
+    # bên dưới nữa. Trước đây cùng 1 ngoại lệ hiện ở cả 2 chỗ.
+    blocking = _blocking_section(db, open_exceptions, impacts)
+    locked_ids = set(blocking["locked_schedule_ids"])
+
     schedule_vehicle = {s.schedule_id: s.vehicle_id for s in schedules}
 
     exceptions_by_vehicle: dict[str, list[dict]] = {}
     for exc in open_exceptions:
+        if str(exc.schedule_id) in locked_ids:
+            continue
         # `exceptions.vehicle_id` nullable — lấy từ chuyến gắn với ngoại lệ khi
         # thiếu, để ngoại lệ không bị rơi khỏi dashboard.
         vehicle_id = exc.vehicle_id or schedule_vehicle.get(exc.schedule_id)
@@ -145,41 +137,26 @@ def dashboard_today(
     result = []
     for vehicle_id in sorted(vehicle_ids):
         vehicle = vehicles.get(vehicle_id)
-        vehicle_schedules = schedules_by_vehicle.get(vehicle_id, [])
-
-        shifts_map: dict[str, list[Schedule]] = {}
-        for s in vehicle_schedules:
-            shifts_map.setdefault(s.shift_label, []).append(s)
-
-        shifts = []
-        for shift_label in sorted(shifts_map, key=lambda x: SHIFT_ORDER.get(x, 99)):
-            trips = []
-            for s in sorted(shifts_map[shift_label], key=lambda x: x.trip_sequence):
-                stops = list(s.stops or [])
-                trips.append(
-                    {
-                        "schedule_id": str(s.schedule_id),
-                        "trip_sequence": s.trip_sequence,
-                        "depot_address": s.depot_address,
-                        "depot_arrival_time": s.depot_arrival_time.isoformat() if s.depot_arrival_time else None,
-                        "planned_departure_time": (
-                            s.planned_departure_time.isoformat() if s.planned_departure_time else None
-                        ),
-                        "status": s.status,
-                        "order_count": len(stops),
-                        "stops": stops,
-                    }
-                )
-            shifts.append(
-                {
-                    "shift_label": shift_label,
-                    "trip_count": len(trips),
-                    "order_count": sum(t["order_count"] for t in trips),
-                    "trips": trips,
-                }
+        trips = [
+            {
+                "schedule_id": str(s.schedule_id),
+                "shift_date": s.shift_date.isoformat(),
+                "trip_sequence": s.trip_sequence,
+                "depot_address": s.depot_address,
+                "depot_arrival_time": s.depot_arrival_time.isoformat() if s.depot_arrival_time else None,
+                "planned_departure_time": (
+                    s.planned_departure_time.isoformat() if s.planned_departure_time else None
+                ),
+                "status": s.status,
+                "order_count": len(s.stops or []),
+                "stops": list(s.stops or []),
+            }
+            for s in sorted(
+                schedules_by_vehicle.get(vehicle_id, []),
+                key=lambda x: (x.shift_date, x.trip_sequence),
             )
+        ]
 
-        current_shift = next((sh for sh in shifts if sh["shift_label"] == shift_now), None)
         result.append(
             {
                 "vehicle_id": vehicle_id,
@@ -187,19 +164,17 @@ def dashboard_today(
                 "driver_phone": vehicle.driver_phone if vehicle else None,
                 "vehicle_type": vehicle.vehicle_type if vehicle else None,
                 "vehicle_status": vehicle.status if vehicle else None,
-                "current_shift_order_count": current_shift["order_count"] if current_shift else 0,
-                "today_order_count": sum(sh["order_count"] for sh in shifts),
-                "shifts": shifts,
+                "trips": trips,
+                "today_order_count": sum(t["order_count"] for t in trips),
                 "open_exceptions": exceptions_by_vehicle.get(vehicle_id, []),
             }
         )
 
     return {
         "shift_date": today.isoformat(),
-        "current_shift_label": shift_now,
         "server_time": now.isoformat(timespec="seconds"),
         "vehicles": result,
-        **_blocking_section(db, open_exceptions, impacts),
+        **blocking,
     }
 
 
@@ -243,7 +218,6 @@ def _blocking_section(db: Session, open_exceptions: list, impacts: dict) -> dict
                 "driver_name": vehicle.driver_name if vehicle else None,
                 "schedule_id": str(schedule.schedule_id),
                 "shift_date": schedule.shift_date.isoformat(),
-                "shift_label": schedule.shift_label,
                 "trip_sequence": schedule.trip_sequence,
                 "orders": [
                     {

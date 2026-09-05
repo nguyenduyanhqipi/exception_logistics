@@ -102,12 +102,3 @@ export function localToday(): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-
-/** Ca hiện tại theo giờ địa phương — khung giờ giữ ĐÚNG như
- *  backend/api/dashboard.py::SHIFT_WINDOWS. */
-export function currentShiftLabel(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "ca_sang";
-  if (h < 18) return "ca_chieu";
-  return "ca_dem";
-}

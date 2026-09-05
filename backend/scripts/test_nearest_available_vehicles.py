@@ -29,7 +29,7 @@ db = SessionLocal()
 user = db.query(User).filter(User.company_id == company_id).first()
 
 # Xe "bận" — tạo 1 exception active trên C01 để xác nhận bị loại khỏi candidate.
-sched = Schedule(company_id=company_id, vehicle_id="C01", shift_date=__import__("datetime").date.today(), shift_label="ca_dem", trip_sequence=900, stops=[])
+sched = Schedule(company_id=company_id, vehicle_id="C01", shift_date=__import__("datetime").date.today(), trip_sequence=900, stops=[])
 db.add(sched)
 db.flush()
 exc_busy = Exception_(company_id=company_id, schedule_id=sched.schedule_id, exception_group="vehicle_issue", sub_type="minor_breakdown", severity="warning", vehicle_id="C01", area="Test", reported_by=user.user_id, status="analyzing")

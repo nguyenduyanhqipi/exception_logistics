@@ -39,7 +39,7 @@ stops = [
     {"stop_id": "s3", "stop_order": 3, "stop_type": "giao_hang", "address": "15 Au Co, Tay Ho", "area": "Tay Ho", "order_id": "DH-103", "eta": "08:50", "sla_deadline": "10:00", "priority_tier": "vip", "volume_kg": 18, "cargo_type": "bulky"},
 ]
 
-schedule = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), shift_label="ca_sang", depot_arrival_time="06:30", depot_loading_duration_min=30, planned_departure_time="07:00", stops=stops)
+schedule = Schedule(company_id=company_id, vehicle_id="B01", shift_date=date.today(), depot_arrival_time="06:30", depot_loading_duration_min=30, planned_departure_time="07:00", stops=stops)
 db.add(schedule)
 db.flush()
 

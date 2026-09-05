@@ -22,7 +22,6 @@ class Schedule(Base):
             "company_id",
             "vehicle_id",
             "shift_date",
-            "shift_label",
             "trip_sequence",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
@@ -33,7 +32,6 @@ class Schedule(Base):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.company_id"), nullable=False)
     vehicle_id = Column(Text, ForeignKey("vehicles.vehicle_id"), nullable=False)
     shift_date = Column(Date, nullable=False)
-    shift_label = Column(Text, nullable=False)
     trip_sequence = Column(Integer, nullable=False, server_default="1")
     depot_arrival_time = Column(Time, nullable=True)
     depot_loading_duration_min = Column(Integer, nullable=True)
