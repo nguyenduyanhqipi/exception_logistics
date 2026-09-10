@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend</title>
+    <!-- VietMap GL JS (bản đồ tương tác, Pha 4 đợt code 5).
+
+         Nạp bằng thẻ <script> chứ KHÔNG import trong TSX: package
+         `@vietmap/vietmap-gl-js` không khai `main`/`module`/`exports` và lại đặt
+         `"sideEffects": false`, nên Vite tree-shake sạch bundle UMD khi chỉ
+         import lấy side effect — đã kiểm chứng: bản build ra không có một dòng
+         mã MapLibre nào. Đây cũng đúng cách nhà cung cấp tài liệu hoá.
+
+         File để LOCAL trong public/vendor (copy từ node_modules, phiên bản pin
+         ở package.json) thay vì unpkg: hôm demo mà CDN chậm/chặn là mất luôn
+         bản đồ. -->
+    <link rel="stylesheet" href="/vendor/vietmap-gl/vietmap-gl.css" />
+    <script src="/vendor/vietmap-gl/vietmap-gl.js"></script>
   </head>
   <body>
     <div id="root"></div>

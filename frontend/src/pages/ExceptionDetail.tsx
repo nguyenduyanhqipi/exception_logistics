@@ -7,6 +7,7 @@ import { usePolling } from "../hooks/usePolling";
 import { OptionList } from "../components/OptionList";
 import { ResolutionPanel, formatDateTime } from "../components/ResolutionPanel";
 import { ExceptionActionsMenu } from "../components/ExceptionActionsMenu";
+import { RoutePanel } from "../components/RoutePanel";
 import { subTypeLabel } from "../labels";
 import { EXCEPTION_STATUS_LABEL, SEVERITY_LABEL } from "../statusLabels";
 
@@ -157,6 +158,11 @@ export function ExceptionDetail() {
           )}
         </div>
       )}
+
+      {/* Bản đồ + tuyến thay thế (Pha 4). Đặt TRƯỚC khối phương án: dispatcher
+          cần nhìn tuyến thật rồi mới đánh giá được phương án AI đề xuất. Tự ẩn
+          với sub_type không hỏi vị trí xe (xem RoutePanel::MAP_SUB_TYPES). */}
+      <RoutePanel exceptionId={exceptionId!} subType={data.sub_type} />
 
       {decided && (
         <ResolutionPanel

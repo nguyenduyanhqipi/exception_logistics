@@ -1,4 +1,5 @@
 import { CUSTOMER_REQUEST_SUGGESTION, visibleFollowUps, type FollowUpField } from "../exceptionForm";
+import { LocationPicker } from "./LocationPicker";
 import { subTypeLabel } from "../labels";
 
 // Render các câu hỏi phụ của 1 answer_key. Dùng CHUNG cho form tạo
@@ -28,7 +29,21 @@ export function FollowUpFields({ answerKey, answers, onChange }: Props) {
             {f.label}
             {f.optional && <span className="hint"> (không bắt buộc)</span>}
           </label>
-          <FollowUpInput field={f} value={answers[f.key]} onChange={(v) => onChange(f.key, v)} />
+          {/* "location" ghi 3 field một lúc (địa chỉ + lat + lng) nên không đi
+              qua FollowUpInput — cái đó chỉ biết 1 key. Gọi onChange nhiều lần
+              là an toàn: cả 2 form đều setState kiểu hàm nên các patch cộng dồn. */}
+          {f.type === "location" ? (
+            <LocationPicker
+              address={typeof answers.current_address === "string" ? answers.current_address : ""}
+              lat={typeof answers.current_lat === "number" ? answers.current_lat : null}
+              lng={typeof answers.current_lng === "number" ? answers.current_lng : null}
+              onChange={(patch) => {
+                for (const [k, v] of Object.entries(patch)) onChange(k, v);
+              }}
+            />
+          ) : (
+            <FollowUpInput field={f} value={answers[f.key]} onChange={(v) => onChange(f.key, v)} />
+          )}
           {f.hint && <span className="hint">{f.hint}</span>}
         </div>
       ))}
@@ -87,17 +102,6 @@ function FollowUpInput({
         value={value === undefined || value === null ? "" : String(value)}
         onFocus={(e) => e.target.select()}
         onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
-      />
-    );
-  }
-
-  if (field.type === "location") {
-    return (
-      <input
-        type="text"
-        value={typeof value === "string" ? value : ""}
-        placeholder="VD: Km12 QL1A, đoạn qua Thường Tín"
-        onChange={(e) => onChange(e.target.value || undefined)}
       />
     );
   }
