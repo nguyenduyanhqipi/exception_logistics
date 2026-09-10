@@ -125,10 +125,15 @@ which pushes back the ETA of every subsequent stop on the route (cascading delay
 Consider when generating options:
 - Whether remaining stops can be reordered to protect the ones closest to SLA breach
   first, accepting more delay on stops with larger SLA buffer.
-- Whether splitting the remaining stops with another nearby vehicle currently
-  available is cheaper than the SLA penalties this delay would otherwise cause.
 - Whether the loading delay itself can be shortened (e.g. partial load now, remainder
   delivered on a later run) instead of changing the route.
+
+IMPORTANT: CONTEXT does NOT include the position or availability of any other vehicle in
+the fleet (no real-time GPS fleet tracking exists yet — a planned future capability, not
+available today). Do NOT propose splitting the remaining stops with another vehicle by
+name, and do NOT invent that vehicle's location, availability, cost, or time. If this
+genuinely might help, phrase it only as a generic note for the dispatcher to check
+manually — never as a concrete plan naming a specific vehicle.
 
 Generate 2-3 options for the dispatcher.""",
     "unknown_delay": """SITUATION: The vehicle is running behind schedule for an unclear reason, and contact
@@ -276,8 +281,16 @@ Consider when generating options:
   cautiously without stopping if the issue does not affect safety.
 - The time cost of the repair stop against how many remaining stops are close to SLA
   breach.
-- Whether a single at-risk stop should be reassigned to another vehicle instead of
-  delaying the entire remaining route for a repair.
+- Whether reordering the remaining stops (serving the tightest SLA deadline first)
+  reduces risk more than a full repair stop would.
+
+IMPORTANT: CONTEXT does NOT include the position or availability of any other vehicle in
+the fleet (no real-time GPS fleet tracking exists yet — a planned future capability, not
+available today). Do NOT propose reassigning a stop to another vehicle by name, and do
+NOT invent that vehicle's location, availability, cost, or time. If a single at-risk stop
+genuinely might be better handled by another vehicle, phrase it only as a generic note
+for the dispatcher to check manually — never as a concrete plan naming a specific
+vehicle.
 
 Generate 2-3 options for the dispatcher.""",
     "major_breakdown": """SITUATION: The vehicle cannot continue driving and still has undelivered goods on
@@ -352,6 +365,16 @@ Consider when generating options:
 - If exceptions genuinely do not need to share anything once examined closely (a
   false-positive link), one option may propose reverting to independent handling —
   explain why in "rationale".
+
+IMPORTANT: The ONLY vehicles you have any data about are the ones that appear inside
+CONTEXT.exceptions[].vehicle_id (plus their own trip/stop details) — you have no
+visibility into the rest of the fleet's position or availability. Do NOT invent, name,
+or estimate a plan for any vehicle that is not literally one of those. If
+CONTEXT.exceptions[] only contains ONE distinct vehicle_id (e.g. two exceptions reported
+on the same vehicle), no cross-vehicle reassignment is possible from the data you have —
+do not propose one; resolve both exceptions using only that one vehicle's own options
+(reroute, reorder stops, escalate), or note that a fleet-wide check is something the
+dispatcher must do manually.
 
 Generate 2-3 combined options for the dispatcher. Each option's cost_estimate and
 time_estimate_minutes must reflect the TOTAL impact across all exceptions in this
