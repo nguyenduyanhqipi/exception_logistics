@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from api.decisions import outcome_to_dict
 from core.conflict_detector import detect_conflict, nearest_available_vehicles
 from core.impact_analyzer import analyze_impact
 from core.rule_engine import calculate_severity, classify_sub_type
@@ -388,15 +389,12 @@ def _bundle_from_decision(db: Session, decision: "Decision | None") -> dict:
             "is_group_decision": decision.group_id is not None,
             "selected_option": _option_to_dict(option) if option is not None else None,
         },
-        "outcome": {
-            "outcome_id": str(outcome.outcome_id),
-            "delivered_on_time": outcome.delivered_on_time,
-            "delay_minutes": outcome.delay_minutes,
-            "actual_cost": float(outcome.actual_cost) if outcome.actual_cost is not None else None,
-            "notes": outcome.notes,
-            "recorded_at": outcome.recorded_at.isoformat(),
-            "recorded_by_name": _user_name(db, outcome.recorded_by),
-        } if outcome is not None else None,
+        # Dùng CHUNG helper với api/decisions.py thay vì tự dựng dict ở đây —
+        # bản dựng tay cũ đã bỏ sót `resolution_type`/`editable` ngay lần đầu
+        # thêm field, đúng kiểu lỗi mà việc gộp 1 chỗ tránh được.
+        "outcome": outcome_to_dict(db, outcome, recorded_by_name=_user_name(db, outcome.recorded_by))
+        if outcome is not None
+        else None,
     }
 
 

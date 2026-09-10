@@ -109,12 +109,20 @@ export interface DecisionInfo {
 
 export interface OutcomeInfo {
   outcome_id: string;
+  /** NULL với kết quả kiểu "khách từ chối nhận hàng" — form đó không hỏi đúng
+   *  giờ/muộn giờ (xem components/OutcomeForm.tsx). */
   delivered_on_time: boolean | null;
   delay_minutes: number | null;
   actual_cost: number | null;
+  /** NULL = kết quả kiểu tiến độ; có giá trị = kiểu khách từ chối nhận hàng. */
+  resolution_type: string | null;
   notes: string | null;
   recorded_at: string;
   recorded_by_name: string | null;
+  /** Backend tự tính theo `outcome_edit_lock_days` của công ty — frontend ẩn
+   *  hẳn nút "Sửa kết quả" khi false, thay vì cho bấm rồi mới ăn 403. KHÔNG tự
+   *  gọi GET /api/settings để suy ra: endpoint đó chỉ manager mới vào được. */
+  editable: boolean;
 }
 
 export interface ExceptionDetail extends ExceptionSummary {

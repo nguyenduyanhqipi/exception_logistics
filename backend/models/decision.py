@@ -30,6 +30,16 @@ class Outcome(Base):
     # migration a6b7c8d9e0f1 không có số liệu này.
     delay_minutes = Column(Integer, nullable=True)
     actual_cost = Column(Numeric, nullable=True)
+    # Kết quả cuối cùng của nhóm "khách từ chối nhận hàng" (customer_absent /
+    # customer_dispute): redelivered | returned_to_depot | cancelled | other.
+    # NULL = outcome "kiểu tiến độ" của 9 sub_type còn lại, nơi câu hỏi đúng là
+    # `delivered_on_time` chứ không phải cái này (migration a7b8c9d0e1f2).
+    #
+    # 2 kiểu outcome loại trừ nhau: kiểu tiến độ luôn có `delivered_on_time`,
+    # kiểu khách-từ-chối luôn để `delivered_on_time` NULL vì form không hỏi câu
+    # đó nữa — tự suy ra một giá trị là bịa số liệu KPI mà dispatcher không hề
+    # khai (ràng buộc ép ở schemas/decision.py).
+    resolution_type = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     recorded_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
     recorded_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { DecisionInfo, OutcomeInfo } from "../api/types";
-import { OutcomeForm, formatVnd } from "./OutcomeForm";
+import { OutcomeForm, formatVnd, resolutionTypeLabel } from "./OutcomeForm";
 
 // Khối "Phương án đã chọn + Quyết định + Kết quả thực tế" (việc 3, 2026-09-04).
 //
@@ -19,11 +19,14 @@ export function formatDateTime(iso: string | null | undefined): string {
 interface ResolutionPanelProps {
   decision: DecisionInfo | null;
   outcome: OutcomeInfo | null;
+  /** sub_type của (các) ngoại lệ thuộc quyết định này — quyết định form nhập kết
+   *  quả dùng kiểu nào (xem OutcomeForm.tsx::isRejectionOutcome). */
+  subTypes: string[];
   /** Query key cần làm mới sau khi lưu kết quả. */
   invalidateKeys: unknown[][];
 }
 
-export function ResolutionPanel({ decision, outcome, invalidateKeys }: ResolutionPanelProps) {
+export function ResolutionPanel({ decision, outcome, subTypes, invalidateKeys }: ResolutionPanelProps) {
   const [entering, setEntering] = useState(false);
   const [editingOutcome, setEditingOutcome] = useState(false);
 
@@ -112,6 +115,7 @@ export function ResolutionPanel({ decision, outcome, invalidateKeys }: Resolutio
         {!outcome && entering && (
           <OutcomeForm
             decisionId={decision.decision_id}
+            subTypes={subTypes}
             onDone={() => setEntering(false)}
             onCancel={() => setEntering(false)}
             invalidateKeys={invalidateKeys}
@@ -122,15 +126,26 @@ export function ResolutionPanel({ decision, outcome, invalidateKeys }: Resolutio
           <>
             <dl className="drill-dl">
               <div>
-                <dt>Giao hàng</dt>
+                {/* Kết quả kiểu "khách từ chối nhận hàng" không có khái niệm đúng
+                    giờ/muộn giờ — hiện đúng thứ đã hỏi thay vì in "-" khó hiểu. */}
+                <dt>{outcome.resolution_type ? "Kết quả cuối cùng" : "Giao hàng"}</dt>
                 <dd>
-                  {outcome.delivered_on_time === true && <span className="badge badge-ok">Đúng giờ</span>}
-                  {outcome.delivered_on_time === false && (
-                    <span className="badge badge-serious">
-                      Muộn giờ{outcome.delay_minutes != null ? ` · ${outcome.delay_minutes} phút` : ""}
-                    </span>
+                  {outcome.resolution_type ? (
+                    <>
+                      <span className="badge">{resolutionTypeLabel(outcome.resolution_type)}</span>
+                      {outcome.delay_minutes != null && ` · trễ ${outcome.delay_minutes} phút so với lần giao đầu`}
+                    </>
+                  ) : (
+                    <>
+                      {outcome.delivered_on_time === true && <span className="badge badge-ok">Đúng giờ</span>}
+                      {outcome.delivered_on_time === false && (
+                        <span className="badge badge-serious">
+                          Muộn giờ{outcome.delay_minutes != null ? ` · ${outcome.delay_minutes} phút` : ""}
+                        </span>
+                      )}
+                      {outcome.delivered_on_time === null && "-"}
+                    </>
                   )}
-                  {outcome.delivered_on_time === null && "-"}
                 </dd>
               </div>
               <div>
@@ -154,17 +169,27 @@ export function ResolutionPanel({ decision, outcome, invalidateKeys }: Resolutio
                 {outcome.notes}
               </div>
             )}
-            <div style={{ marginTop: 12 }}>
-              <button type="button" className="secondary" onClick={() => setEditingOutcome(true)}>
-                Sửa kết quả
-              </button>
-            </div>
+            {/* Gap 1 (đợt code 5): hết hạn khoá sửa thì ẨN HẲN nút, không phải làm
+                mờ — nút mờ vẫn khiến người dùng đi tìm cách bấm cho được. Trạng
+                thái này do backend tính (`editable`), frontend không tự suy. */}
+            {outcome.editable ? (
+              <div style={{ marginTop: 12 }}>
+                <button type="button" className="secondary" onClick={() => setEditingOutcome(true)}>
+                  Sửa kết quả
+                </button>
+              </div>
+            ) : (
+              <div className="drill-muted" style={{ marginTop: 12 }}>
+                Đã quá hạn sửa kết quả theo cấu hình của công ty — số liệu này đã chốt vào KPI.
+              </div>
+            )}
           </>
         )}
 
         {outcome && editingOutcome && (
           <OutcomeForm
             decisionId={decision.decision_id}
+            subTypes={subTypes}
             existing={outcome}
             onDone={() => setEditingOutcome(false)}
             onCancel={() => setEditingOutcome(false)}

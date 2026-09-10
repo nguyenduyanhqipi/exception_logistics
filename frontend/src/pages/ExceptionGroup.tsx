@@ -100,6 +100,7 @@ export function ExceptionGroup() {
         <ResolutionPanel
           decision={data.decision}
           outcome={data.outcome}
+          subTypes={data.exceptions.map((e) => e.sub_type)}
           invalidateKeys={[["exception-group", groupId], ["dashboard-today"], ["exceptions-history"]]}
         />
       )}

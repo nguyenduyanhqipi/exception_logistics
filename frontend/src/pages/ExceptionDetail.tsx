@@ -162,6 +162,7 @@ export function ExceptionDetail() {
         <ResolutionPanel
           decision={data.decision}
           outcome={data.outcome}
+          subTypes={[data.sub_type]}
           invalidateKeys={[["exception", exceptionId], ["dashboard-today"], ["exceptions-history"]]}
         />
       )}

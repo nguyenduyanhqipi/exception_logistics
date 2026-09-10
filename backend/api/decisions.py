@@ -117,16 +117,53 @@ def create_decision(
     }
 
 
-def _outcome_to_dict(outcome: Outcome) -> dict:
-    return {
+def outcome_edit_deadline(db: Session, company_id, recorded_at) -> "datetime | None":
+    """Hạn cuối được sửa 1 outcome, hoặc None nếu công ty không đặt hạn.
+
+    Tách riêng để `update_outcome` (chặn thật) và `outcome_to_dict` (báo cho
+    frontend biết còn sửa được không) dùng CHUNG một phép tính — 2 nơi tính
+    riêng là kiểu bug im lặng: nút bấm hiện ra rồi bấm vào mới ăn 403.
+    """
+    company = db.get(Company, company_id)
+    lock_days = company.outcome_edit_lock_days if company else None
+    if not lock_days:
+        return None
+    return recorded_at + timedelta(days=lock_days)
+
+
+def outcome_to_dict(db: Session, outcome: Outcome, recorded_by_name: "str | None" = None) -> dict:
+    """Dạng JSON của 1 outcome, dùng CHUNG cho api/decisions.py và
+    api/exceptions.py (trước đây 2 file tự dựng dict riêng, thêm field mới là
+    quên đúng 1 chỗ).
+
+    `editable` (Gap 1, đợt code 5): backend tự tính hộ, KHÔNG để frontend gọi
+    `GET /api/settings` mà tự suy — endpoint đó gắn quyền manager, còn người
+    bấm nút sửa kết quả thường là dispatcher nên sẽ ăn 403 ở đúng chỗ không
+    liên quan gì. Có field này rồi thì frontend ẩn hẳn nút "Sửa kết quả" khi
+    hết hạn, thay vì cho bấm rồi mới báo lỗi.
+    """
+    deadline = outcome_edit_deadline(db, _company_id_of_outcome(db, outcome), outcome.recorded_at)
+    data = {
         "outcome_id": str(outcome.outcome_id),
         "decision_id": str(outcome.decision_id),
         "delivered_on_time": outcome.delivered_on_time,
         "delay_minutes": outcome.delay_minutes,
         "actual_cost": float(outcome.actual_cost) if outcome.actual_cost is not None else None,
+        "resolution_type": outcome.resolution_type,
         "notes": outcome.notes,
         "recorded_at": outcome.recorded_at.isoformat(),
+        "editable": deadline is None or datetime.now(timezone.utc) <= deadline,
     }
+    if recorded_by_name is not None:
+        data["recorded_by_name"] = recorded_by_name
+    return data
+
+
+def _company_id_of_outcome(db: Session, outcome: Outcome):
+    """`Outcome` KHÔNG có company_id (xem docstring api/reports.py) — phải đi
+    vòng qua `Decision` để biết nó thuộc công ty nào."""
+    decision = db.get(Decision, outcome.decision_id)
+    return decision.company_id if decision is not None else None
 
 
 @router.post("/outcomes", status_code=status.HTTP_201_CREATED)
@@ -154,6 +191,7 @@ def create_outcome(
         delivered_on_time=payload.delivered_on_time,
         delay_minutes=payload.delay_minutes,
         actual_cost=payload.actual_cost,
+        resolution_type=payload.resolution_type,
         notes=payload.notes,
         recorded_by=current_user["user_id"],
     )
@@ -179,13 +217,14 @@ def create_outcome(
                 "delivered_on_time": payload.delivered_on_time,
                 "delay_minutes": payload.delay_minutes,
                 "actual_cost": float(payload.actual_cost),
+                "resolution_type": payload.resolution_type,
             },
         )
     )
 
     db.commit()
     db.refresh(outcome)
-    return _outcome_to_dict(outcome)
+    return outcome_to_dict(db, outcome)
 
 
 @router.patch("/outcomes/{outcome_id}")
@@ -212,18 +251,25 @@ def update_outcome(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy kết quả {outcome_id}")
 
     # Hạn khoá sửa theo cấu hình công ty (việc 3). NULL/0 = không khoá.
-    company = db.get(Company, decision.company_id)
-    lock_days = company.outcome_edit_lock_days if company else None
-    if lock_days:
-        deadline = outcome.recorded_at + timedelta(days=lock_days)
-        if datetime.now(timezone.utc) > deadline:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Đã quá hạn {lock_days} ngày kể từ khi ghi nhận "
-                    f"({outcome.recorded_at.date().isoformat()}), không thể sửa kết quả này nữa."
-                ),
-            )
+    deadline = outcome_edit_deadline(db, decision.company_id, outcome.recorded_at)
+    if deadline is not None and datetime.now(timezone.utc) > deadline:
+        company = db.get(Company, decision.company_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Đã quá hạn {company.outcome_edit_lock_days} ngày kể từ khi ghi nhận "
+                f"({outcome.recorded_at.date().isoformat()}), không thể sửa kết quả này nữa."
+            ),
+        )
+
+    # Đổi qua lại giữa 2 KIỂU outcome là đổi bản chất bản ghi KPI, không phải
+    # "sửa số liệu nhập sai" — chặn hẳn, dispatcher nhập nhầm kiểu thì đó là
+    # nhầm loại ngoại lệ, phải sửa ở ngoại lệ chứ không phải ở đây.
+    if (outcome.resolution_type is None) != (payload.resolution_type is None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Không đổi được kiểu kết quả (tiến độ <-> khách từ chối nhận hàng) của một kết quả đã ghi.",
+        )
 
     if outcome.delivered_on_time is False and payload.delivered_on_time is True:
         raise HTTPException(
@@ -242,6 +288,7 @@ def update_outcome(
     outcome.delivered_on_time = payload.delivered_on_time
     outcome.delay_minutes = payload.delay_minutes
     outcome.actual_cost = payload.actual_cost
+    outcome.resolution_type = payload.resolution_type
     outcome.notes = payload.notes
 
     db.add(
@@ -265,4 +312,4 @@ def update_outcome(
 
     db.commit()
     db.refresh(outcome)
-    return _outcome_to_dict(outcome)
+    return outcome_to_dict(db, outcome)
