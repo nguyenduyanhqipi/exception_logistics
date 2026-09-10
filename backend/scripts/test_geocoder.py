@@ -1,4 +1,4 @@
-"""Test geocoder.py (BUILD_PLAN.md bước 7.2-7.4) — bản Goong Maps (mục 41).
+"""Test geocoder.py (BUILD_PLAN.md bước 7.2-7.4) — bản VietMap (đợt code 5, Pha 6).
 
 4 việc test được:
   1. Cache logic (7.3) — mock httpx.get, xác nhận gọi API đúng 1 lần cho 2 lần
@@ -6,17 +6,20 @@
   2. Graceful degradation khi KHÔNG có key (7.4) — không raise, trả None sạch
      sẽ.
   3. Graceful degradation khi CÓ key nhưng SAI/invalid (7.4, gọi API THẬT của
-     Goong với key rác để mô phỏng "sai key") — Goong trả lỗi (status khác
-     "OK", hoặc HTTP lỗi), code phải bắt và trả None, không crash.
-  4. (chỉ chạy nếu `GOONG_API_KEY` thật có trong .env) geocode + distance_matrix
+     VietMap với key rác để mô phỏng "sai key") — VietMap trả HTTP lỗi, code
+     phải bắt và trả None, không crash.
+  4. (chỉ chạy nếu `VIETMAP_API_KEY` thật có trong .env) geocode + distance_matrix
      THẬT trên địa chỉ Hà Nội thật — verify tọa độ hợp lý, khoảng cách/thời
      gian hợp lý, và cache distance_matrix không gọi lại API lần 2. Test này
      từng bị bỏ trống vì lúc viết ban đầu chưa có key thật — khi có key, đã
      lộ ra 2 bug thật trong `distance_matrix()` (đã sửa, xem docstring hàm
-     đó trong `core/geocoder.py`): (a) truyền thẳng địa chỉ text vào Goong
+     đó trong `core/geocoder.py`): (a) truyền thẳng địa chỉ text vào
      DistanceMatrix trong khi API đó CHỈ nhận tọa độ `lat,lng` (khác Google);
-     (b) check nhầm field `status` ở cấp response cao nhất (Goong không có
-     field đó, chỉ Google có) khiến luôn coi là lỗi dù request thành công.
+     (b) check nhầm field `status` ở cấp response cao nhất.
+
+ĐỔI SANG VIETMAP 2026-09-10: geocode thuận nay tốn 2 lệnh gọi HTTP
+(`Search v4` trả ref_id -> `Place v4` trả lat/lng) chứ không phải 1 như Goong,
+nên test cache bên dưới đếm 2 lượt gọi cho lần geocode đầu tiên.
 """
 import os
 import sys
@@ -52,27 +55,31 @@ db.commit()
 
 try:
     # ---- Test 1: cache logic (7.3), mock httpx.get + key giả để đi qua nhánh gọi API ----
-    fake_response = MagicMock()
-    fake_response.raise_for_status = MagicMock()
-    fake_response.json.return_value = {
-        "status": "OK",
-        "results": [{"geometry": {"location": {"lat": 21.0368, "lng": 105.7827}}}],
-    }
+    # VietMap geocode = 2 lệnh gọi: Search v4 (ra ref_id, KHÔNG có toạ độ) rồi
+    # Place v4 (ra lat/lng). Mock phải trả đúng 2 shape đó theo thứ tự.
+    def make_response(payload):
+        r = MagicMock()
+        r.raise_for_status = MagicMock()
+        r.json.return_value = payload
+        return r
+
+    search_response = make_response([{"ref_id": "geocode:FAKE-REF", "display": "144 Xuân Thuỷ"}])
+    place_response = make_response({"lat": 21.0368, "lng": 105.7827, "display": "144 Xuân Thuỷ"})
     call_count = {"n": 0}
 
-    def fake_get(*args, **kwargs):
+    def fake_get(url, *args, **kwargs):
         call_count["n"] += 1
-        return fake_response
+        return place_response if "place" in str(url) else search_response
 
-    with patch.dict(os.environ, {"GOONG_API_KEY": "fake-key-for-cache-test"}):
+    with patch.dict(os.environ, {"VIETMAP_API_KEY": "fake-key-for-cache-test"}):
         with patch("core.geocoder.httpx.get", side_effect=fake_get):
             result1 = geocoder.geocode(db, test_address)
             check("Lần gọi 1: trả toạ độ đúng từ (mock) API", result1 == {"lat": 21.0368, "lng": 105.7827})
-            check("Lần gọi 1: gọi httpx.get đúng 1 lần", call_count["n"] == 1)
+            check("Lần gọi 1: gọi httpx.get đúng 2 lần (Search v4 + Place v4)", call_count["n"] == 2)
 
             result2 = geocoder.geocode(db, test_address)
             check("Lần gọi 2 (cùng địa chỉ): trả đúng toạ độ từ cache", result2 == {"lat": 21.0368, "lng": 105.7827})
-            check("Lần gọi 2: KHÔNG gọi lại httpx.get (vẫn 1 lần) — cache hoạt động", call_count["n"] == 1)
+            check("Lần gọi 2: KHÔNG gọi lại httpx.get (vẫn 2 lần) — cache hoạt động", call_count["n"] == 2)
 
     cached_row = db.query(GeocodeCache).filter(GeocodeCache.address_hash == address_hash).first()
     check("geocode_cache có 1 dòng lưu đúng address_raw", cached_row is not None and cached_row.address_raw == test_address)
@@ -80,15 +87,15 @@ try:
     # ---- Test 2: graceful degradation KHÔNG CÓ key (7.4) ----
     db.query(GeocodeCache).filter(GeocodeCache.address_hash == address_hash).delete()
     db.commit()
-    with patch.dict(os.environ, {"GOONG_API_KEY": ""}):
+    with patch.dict(os.environ, {"VIETMAP_API_KEY": ""}):
         result_no_key = geocoder.geocode(db, test_address)
         check("Không có key: trả None, KHÔNG raise exception", result_no_key is None)
 
-    # ---- Test 3: graceful degradation với key SAI thật sự (gọi Goong API THẬT) ----
-    with patch.dict(os.environ, {"GOONG_API_KEY": "invalid-key-does-not-exist-12345"}):
+    # ---- Test 3: graceful degradation với key SAI thật sự (gọi VietMap API THẬT) ----
+    with patch.dict(os.environ, {"VIETMAP_API_KEY": "invalid-key-does-not-exist-12345"}):
         try:
             result_bad_key = geocoder.geocode(db, test_address)
-            check("Key sai (gọi Goong API thật): trả None, KHÔNG raise exception", result_bad_key is None)
+            check("Key sai (gọi VietMap API thật): trả None, KHÔNG raise exception", result_bad_key is None)
         except Exception as e:  # noqa: BLE001
             check(f"Key sai: KHÔNG được raise exception (đã raise: {e})", False)
 
@@ -99,7 +106,7 @@ try:
             check(f"distance_matrix key sai: KHÔNG được raise (đã raise: {e})", False)
 
     # ---- Test 4: geocode + distance_matrix THẬT với key thật (nếu có) ----
-    real_key = os.environ.get("GOONG_API_KEY")
+    real_key = os.environ.get("VIETMAP_API_KEY")
     addr_a = "18 Pham Hung, Nam Tu Liem, Ha Noi - TEST ONLY"
     addr_b = "144 Xuan Thuy, Cau Giay, Ha Noi - TEST ONLY"
     hash_a, hash_b = geocoder._address_hash(addr_a), geocoder._address_hash(addr_b)
@@ -107,7 +114,7 @@ try:
     db.commit()
 
     if not real_key:
-        print("[SKIP] Test 4 (geocode/distance_matrix với key thật) — GOONG_API_KEY chưa cấu hình.")
+        print("[SKIP] Test 4 (geocode/distance_matrix với key thật) — VIETMAP_API_KEY chưa cấu hình.")
     else:
         coords_a = geocoder.geocode(db, addr_a)
         check("Test 4: geocode địa chỉ A ra tọa độ hợp lý cho Hà Nội (lat 20.5-21.5, lng 105.3-106.1)", coords_a is not None and 20.5 <= coords_a["lat"] <= 21.5 and 105.3 <= coords_a["lng"] <= 106.1)

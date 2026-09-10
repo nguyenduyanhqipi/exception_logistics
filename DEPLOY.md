@@ -15,7 +15,7 @@ VM Ubuntu, IP tĩnh `34.142.218.150`, đã cài Docker. Chạy toàn bộ 4 serv
 
 1. SSH vào VM, `git clone`/`git pull` repo này.
 2. Tạo `.env` ở gốc repo (dùng `.env.example` làm mẫu) — điền `GEMINI_API_KEY`
-   (`_2`/`_3` nếu có), `GOONG_API_KEY`, `JWT_SECRET` (chuỗi ngẫu nhiên dài),
+   (`_2`/`_3` nếu có), `VIETMAP_API_KEY`, `JWT_SECRET` (chuỗi ngẫu nhiên dài),
    `SENTRY_DSN` (tuỳ chọn). `DATABASE_URL` KHÔNG cần điền — `docker-compose.yml`
    đã tự trỏ `api`/`worker` vào service `db` nội bộ.
 3. `docker compose up -d --build`. Service `frontend` build với build arg
@@ -61,7 +61,7 @@ migration.
    "worker chạy riêng, không chung tiến trình với API".
 3. Điền 3 biến môi trường còn thiếu (đánh dấu `sync: false` trong
    `render.yaml`, Render sẽ hỏi khi tạo) cho CẢ web lẫn worker:
-   `GEMINI_API_KEY`, `GOONG_API_KEY`, `SENTRY_DSN` (Sentry để trống nếu
+   `GEMINI_API_KEY`, `VIETMAP_API_KEY`, `SENTRY_DSN` (Sentry để trống nếu
    chưa dùng). `DATABASE_URL`/`JWT_SECRET` đã tự sinh.
 4. Deploy. Kiểm tra: `curl https://<tên-service>.onrender.com/health` trả
    `{"status":"ok"}`.
@@ -78,7 +78,7 @@ Railway không dùng file blueprint kiểu `render.yaml` — làm qua dashboard/
    quyền cho phép).
 4. "Add" → "GitHub Repo" → chọn repo, set "Root Directory" = `backend`.
    Railway tự nhận `Dockerfile` trong đó.
-5. Thêm biến môi trường cho service: `GEMINI_API_KEY`, `GOONG_API_KEY`,
+5. Thêm biến môi trường cho service: `GEMINI_API_KEY`, `VIETMAP_API_KEY`,
    `JWT_SECRET` (tự sinh 1 chuỗi ngẫu nhiên dài), `SENTRY_DSN` (tuỳ chọn).
    `DATABASE_URL` dùng biến tham chiếu `${{Postgres.DATABASE_URL}}` Railway
    cung cấp sẵn khi link 2 service cùng project.
