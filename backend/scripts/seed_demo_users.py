@@ -37,9 +37,16 @@ def main():
         else:
             print(f"Company {company.company_id} already exists")
 
+        # manager2/manager3 vốn được tạo trên production bằng 1 lệnh Python
+        # chạy tay (2026-09-09), KHÔNG qua script này — dựng lại VM hay reset DB
+        # là mất hẳn. Đưa vào đây để mọi tài khoản demo đều tái tạo được bằng
+        # đúng 1 lệnh. Vòng lặp bên dưới đã bỏ qua email đã tồn tại nên chạy lại
+        # trên production (nơi 2 tài khoản này đã có) là an toàn.
         demo_users = [
             ("manager@demo.vn", "manager123", "manager", "Nguyễn Quản Lý"),
             ("dispatcher@demo.vn", "dispatcher123", "dispatcher", "Trần Điều Phối"),
+            ("manager2@demo.vn", "manager456", "manager", "Lê Quản Lý"),
+            ("manager3@demo.vn", "manager789", "manager", "Phạm Quản Lý"),
         ]
         for email, password, role, full_name in demo_users:
             existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
