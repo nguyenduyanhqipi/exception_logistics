@@ -165,7 +165,14 @@ def dashboard_today(
                 "vehicle_type": vehicle.vehicle_type if vehicle else None,
                 "vehicle_status": vehicle.status if vehicle else None,
                 "trips": trips,
-                "today_order_count": sum(t["order_count"] for t in trips),
+                # CHỈ đếm chuyến của HÔM NAY (Quyết định 5, 2026-09-08). `trips`
+                # trải mọi ngày kể từ Quyết định 2, nên cộng hết là ra con số gộp
+                # cả chuyến quá khứ lẫn tương lai — sai hẳn ý nghĩa cột "Số
+                # đơn/chuyến" trên Dashboard.
+                "today_order_count": sum(
+                    t["order_count"] for t in trips if t["shift_date"] == today.isoformat()
+                ),
+                "today_trip_count": sum(1 for t in trips if t["shift_date"] == today.isoformat()),
                 "open_exceptions": exceptions_by_vehicle.get(vehicle_id, []),
             }
         )

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from api.exceptions import cascade_delete_exception_rows, cascade_delete_exceptions_of_schedules
 from core.excel_parser import ExcelValidationError, parse_schedule_sheet
 from middleware.auth import get_current_user
 from middleware.tenant import get_db
@@ -168,28 +169,33 @@ def delete_stop(
             detail="Đây là điểm giao cuối cùng của chuyến — xoá cả chuyến thay vì xoá điểm giao.",
         )
 
-    # Chặn HẸP hơn `_assert_not_locked_for_overwrite`: chỉ cấm khi ĐÚNG điểm này
-    # đang nằm trong `affected_stops` của một ngoại lệ chưa giải quyết. Huỷ đơn ở
-    # điểm #3 trong khi điểm #1 đang có ngoại lệ là chuyện bình thường của điều
-    # hành — chặn cả chuyến ở đây sẽ khoá mất đúng thao tác mà thiết kế muốn mở.
-    blocking = db.execute(
-        select(Exception_, ImpactAnalysis)
-        .join(ImpactAnalysis, ImpactAnalysis.exception_id == Exception_.exception_id)
-        .where(
-            Exception_.schedule_id == schedule.schedule_id,
-            Exception_.deleted_at.is_(None),
-            Exception_.status != "resolved",
-        )
-    ).all()
-    for exc, impact in blocking:
-        if any(str(a.get("stop_id")) == stop_id for a in (impact.affected_stops or [])):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Điểm giao {target.get('order_id') or stop_id} đang nằm trong phạm vi ảnh hưởng của "
-                    f"một ngoại lệ chưa xử lý xong ({exc.sub_type}) — xử lý xong ngoại lệ đó rồi hãy xoá điểm giao."
-                ),
+    # CASCADE thay vì chặn (Quyết định 4, 2026-09-08): ngoại lệ CHƯA có kết quả
+    # mà đang ảnh hưởng đúng điểm giao này thì bị xoá cùng điểm giao — phân tích
+    # của nó dựa trên một đơn sắp không còn tồn tại.
+    #
+    # Chỉ xét ngoại lệ ảnh hưởng ĐÚNG điểm này, KHÔNG phải mọi ngoại lệ của
+    # chuyến: huỷ đơn ở điểm #3 trong khi điểm #1 đang có ngoại lệ riêng là
+    # chuyện bình thường của điều hành, xoá lây sang ngoại lệ của điểm khác mới
+    # là sai. Ngoại lệ đã `resolved` không bị đụng (xem cascade_delete_*).
+    victims = [
+        exc
+        for exc, affected in db.execute(
+            select(Exception_, ImpactAnalysis.affected_stops)
+            .join(ImpactAnalysis, ImpactAnalysis.exception_id == Exception_.exception_id)
+            .where(
+                Exception_.schedule_id == schedule.schedule_id,
+                Exception_.deleted_at.is_(None),
+                Exception_.status != "resolved",
             )
+        ).all()
+        if any(str(a.get("stop_id")) == stop_id for a in (affected or []))
+    ]
+    cascade_delete_exception_rows(
+        db,
+        victims,
+        current_user,
+        reason=f"Điểm giao {target.get('order_id') or stop_id} đã bị xoá khỏi chuyến",
+    )
 
     schedule.stops = [s for s in stops if str(s.get("stop_id")) != stop_id]
     db.commit()
@@ -357,9 +363,14 @@ def delete_schedules(
     tới chuyến. Xoá kế hoạch và xử lý ngoại lệ là 2 việc TÁCH RỜI — kế hoạch
     nhập sai thì phải dọn được ngay, không phải chờ giải quyết xong ngoại lệ.
 
-    CHỈ đụng bảng `schedules`. TUYỆT ĐỐI không chạm `exceptions` / `decisions` /
-    `outcomes`: ngoại lệ chưa xử lý xong vẫn nguyên vẹn, vẫn hiện ở mục "Ngoại
-    lệ chưa hoàn thành" trên Dashboard, vẫn sửa/nhập kết quả được bình thường.
+    CASCADE ngoại lệ CHƯA có kết quả (Quyết định 4, đổi 2026-09-08 — trước đó
+    cố ý KHÔNG chạm gì tới `exceptions`). Lý do đổi: để lại ngoại lệ trỏ vào
+    chuyến vừa bị xoá thì `impact_analysis.affected_stops` chỉ vào những đơn
+    không còn tồn tại, AI vẫn sinh phương án quanh chúng, và mục "Ngoại lệ chưa
+    hoàn thành" đầy những việc không còn cách nào xử lý cho xong.
+
+    Ngoại lệ đã `resolved` KHÔNG bị đụng: `decisions`/`outcomes` của nó là số
+    liệu KPI đã chốt (xem `cascade_delete_exception_rows`).
 
     Chặn GHI ĐÈ (`_assert_not_locked_for_overwrite`) là chuyện khác và KHÔNG bị
     nới theo — nhập đè lên chuyến đang có ngoại lệ vẫn bị cấm, vì nó thay
@@ -380,6 +391,12 @@ def delete_schedules(
             ),
         )
 
+    cascaded = cascade_delete_exceptions_of_schedules(
+        db,
+        [s.schedule_id for s in schedules],
+        current_user,
+        reason="Chuyến của ngoại lệ này đã bị xoá",
+    )
     now = datetime.now(timezone.utc)
     for sched in schedules:
         sched.deleted_at = now
@@ -389,6 +406,7 @@ def delete_schedules(
         "vehicles": sorted({s.vehicle_id for s in schedules}),
         "dates": sorted({s.shift_date.isoformat() for s in schedules}),
         "shift_date": shift_date.isoformat() if shift_date is not None else None,
+        "cascaded_exceptions": len(cascaded),
     }
 
 
@@ -403,6 +421,14 @@ def delete_schedule(
     if schedule is None or str(schedule.company_id) != current_user["company_id"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy chuyến {schedule_id}")
 
+    cascaded = cascade_delete_exceptions_of_schedules(
+        db, [schedule.schedule_id], current_user, reason="Chuyến của ngoại lệ này đã bị xoá"
+    )
     schedule.deleted_at = datetime.now(timezone.utc)
     db.commit()
-    return {"deleted": 1, "vehicles": [schedule.vehicle_id], "dates": [schedule.shift_date.isoformat()]}
+    return {
+        "deleted": 1,
+        "vehicles": [schedule.vehicle_id],
+        "dates": [schedule.shift_date.isoformat()],
+        "cascaded_exceptions": len(cascaded),
+    }

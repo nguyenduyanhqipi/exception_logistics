@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from api.decisions import outcome_to_dict
@@ -19,6 +19,7 @@ from models import (
     ImpactAnalysis,
     Option,
     Outcome,
+    ResourceLock,
     Schedule,
     User,
     Vehicle,
@@ -457,15 +458,24 @@ def get_exception_detail(
 
 def _load_editable_exception(exception_id: str, current_user: dict, db: Session) -> Exception_:
     """Ngoại lệ được phép sửa/xoá: đúng công ty, chưa soft-delete, và CHƯA có
-    quyết định nào được xác nhận.
+    kết quả thực tế.
 
-    Chặn từ `awaiting_outcome` chứ không phải chỉ `resolved` (từ 2026-09-04,
-    xem api/decisions.py): `awaiting_outcome` nghĩa là dispatcher ĐÃ chốt
-    phương án, `decisions.selected_option_id` đã trỏ vào 1 option. Cho sửa lúc
-    này thì `_reset_analysis` sẽ xoá đúng option đang bị quyết định tham chiếu
-    (vỡ khoá ngoại), còn cho xoá thì để lại 1 quyết định mồ côi vẫn được KPI
-    đếm. Muốn đổi phương án đã chốt là nghiệp vụ khác, không phải "sửa thông
-    tin nhập sai"."""
+    NỚI TỚI `awaiting_outcome` (Quyết định 4, 2026-09-08). Trước đó chặn từ
+    `awaiting_outcome` vì lý do KỸ THUẬT: lúc đó đã có `decisions` trỏ vào 1
+    `option`, nên `_reset_analysis` xoá option là vỡ khoá ngoại, còn xoá ngoại
+    lệ thì để lại quyết định mồ côi vẫn được KPI đếm. Lý do đó nay xử lý thẳng
+    bằng `_discard_pending_decision()` (huỷ luôn quyết định chưa có kết quả)
+    thay vì cấm người dùng — dispatcher nhập nhầm rồi lỡ bấm xác nhận phương án
+    là chuyện có thật, bắt họ nhập một kết quả giả để "hoàn tất" một ngoại lệ
+    không có thật còn làm hỏng KPI nặng hơn.
+
+    RANH GIỚI CỨNG vẫn là `resolved`: đã có `outcomes` thì thôi. `Decision`/
+    `Option` không có `deleted_at` nên phải xoá cứng, mà `outcomes.decision_id`
+    là FK NOT NULL — xoá quyết định của case đã resolved sẽ kéo mất luôn kết
+    quả thực tế, tức mất số liệu KPI thật.
+
+    ĐỪNG NHẦM với `outcome.editable` (Gap 1, api/decisions.py): cái đó nói
+    outcome còn sửa được không SAU khi đã resolved — hai entity khác nhau."""
     exc = db.get(Exception_, exception_id)
     if exc is None or str(exc.company_id) != current_user["company_id"] or exc.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy ngoại lệ {exception_id}")
@@ -474,12 +484,100 @@ def _load_editable_exception(exception_id: str, current_user: dict, db: Session)
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ngoại lệ đã xử lý xong (đã có kết quả thực tế) — không sửa/xoá được nữa để giữ đúng số liệu KPI đã chốt.",
         )
-    if exc.status == "awaiting_outcome":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ngoại lệ đã xác nhận phương án xử lý — không sửa/xoá được nữa, hãy nhập kết quả thực tế để hoàn tất.",
-        )
     return exc
+
+
+def _discard_pending_decision(db: Session, exc: Exception_) -> None:
+    """Xoá cứng quyết định CHƯA có kết quả thực tế của 1 ngoại lệ (và của cả
+    nhóm nếu nó thuộc combined mode), kèm `resource_locks` đang giữ chỗ.
+
+    Gọi TRƯỚC `_reset_analysis()` hoặc trước khi xoá ngoại lệ: quyết định trỏ
+    vào 1 `option`, mà cả 2 đường đó đều xoá option — không dọn quyết định
+    trước thì vỡ khoá ngoại.
+
+    An toàn với KPI: chỉ đụng quyết định KHÔNG có `outcomes` nào trỏ vào.
+    Trường hợp có outcome đã bị `_load_editable_exception` chặn từ trước
+    (status = resolved); nhánh kiểm tra ở đây là lớp chặn thứ hai cho các
+    đường gọi khác (vd cascade khi xoá chuyến/điểm giao).
+    """
+    scope_ids = [exc.exception_id]
+    if exc.group_id is not None:
+        group = db.get(ExceptionGroup, exc.group_id)
+        if group is not None:
+            scope_ids = list(group.exception_ids)
+
+    conditions = [Decision.exception_id.in_(scope_ids)]
+    if exc.group_id is not None:
+        conditions.append(Decision.group_id == exc.group_id)
+
+    for decision in db.execute(select(Decision).where(or_(*conditions))).scalars().all():
+        has_outcome = db.execute(
+            select(Outcome).where(Outcome.decision_id == decision.decision_id)
+        ).scalars().first()
+        if has_outcome is not None:
+            continue
+        db.delete(decision)
+
+    db.query(ResourceLock).filter(ResourceLock.exception_id.in_(scope_ids)).delete(synchronize_session=False)
+
+
+def cascade_delete_exception_rows(db: Session, exceptions: list, current_user: dict, reason: str) -> list:
+    """Xoá mềm đúng những ngoại lệ được truyền vào, kèm dọn quyết định treo /
+    phương án / job còn dở (Quyết định 4, 2026-09-08). Trả về list exception_id.
+
+    Dùng khi người dùng đụng vào chuyến/điểm giao mà ngoại lệ đang dựa vào:
+    phân tích của nó gắn với dữ liệu vừa biến mất (`impact_analysis.
+    affected_stops` trỏ vào `stop_id` không còn tồn tại), giữ lại chỉ sinh ra
+    phương án nói về những đơn không có thật.
+
+    Ngoại lệ `resolved` bị BỎ QUA hoàn toàn (không xoá, không báo lỗi): đó là
+    số liệu KPI đã chốt, và xoá nó sẽ kéo theo `decisions`/`outcomes` — xem
+    `_load_editable_exception`. Chuyến đã xoá mềm thì ngoại lệ resolved của nó
+    vẫn tra cứu lịch sử được bình thường.
+    """
+    now = datetime.now(timezone.utc)
+    deleted = []
+    for exc in exceptions:
+        if exc.deleted_at is not None or exc.status == "resolved":
+            continue
+        status_before = exc.status
+        _discard_pending_decision(db, exc)
+        for opt in db.execute(select(Option).where(Option.exception_id == exc.exception_id)).scalars().all():
+            db.delete(opt)
+        db.execute(
+            update(BackgroundJob)
+            .where(BackgroundJob.exception_id == exc.exception_id, BackgroundJob.status.in_(("pending", "running")))
+            .values(status="failed", error=reason)
+        )
+        exc.deleted_at = now
+        exc.group_id = None
+        deleted.append(exc.exception_id)
+        db.add(
+            AuditLog(
+                company_id=current_user["company_id"],
+                user_id=current_user["user_id"],
+                action="cascade_delete_exception",
+                entity_type="exception",
+                entity_id=exc.exception_id,
+                detail={"reason": reason, "status_before": status_before},
+            )
+        )
+    return deleted
+
+
+def cascade_delete_exceptions_of_schedules(db: Session, schedule_ids: list, current_user: dict, reason: str) -> list:
+    """Bản tiện dụng của `cascade_delete_exception_rows` cho trường hợp xoá cả
+    chuyến: tự tìm mọi ngoại lệ chưa xong đang trỏ vào các chuyến đó."""
+    if not schedule_ids:
+        return []
+    rows = db.execute(
+        select(Exception_).where(
+            Exception_.schedule_id.in_(schedule_ids),
+            Exception_.deleted_at.is_(None),
+            Exception_.status != "resolved",
+        )
+    ).scalars().all()
+    return cascade_delete_exception_rows(db, rows, current_user, reason)
 
 
 def _reset_analysis(db: Session, exc: Exception_, current_user: dict) -> BackgroundJob:
@@ -532,6 +630,10 @@ def update_exception(
     dispatcher — nhóm hiện tại giữ nguyên, chỉ phương án được sinh lại.
     """
     exc = _load_editable_exception(exception_id, current_user, db)
+    # Có thể đang ở `awaiting_outcome`: quyết định cũ được chốt dựa trên đúng
+    # thông tin sắp bị sửa nên giữ lại là vô nghĩa — và `_reset_analysis` bên
+    # dưới sẽ xoá đúng option mà nó đang trỏ vào.
+    _discard_pending_decision(db, exc)
 
     schedule = db.get(Schedule, exc.schedule_id)
     if schedule is None or schedule.deleted_at is not None:
@@ -617,6 +719,7 @@ def delete_exception(
 ):
     """Xoá mềm 1 ngoại lệ nhập nhầm (việc 5). Chỉ khi CHƯA resolved."""
     exc = _load_editable_exception(exception_id, current_user, db)
+    _discard_pending_decision(db, exc)
 
     exc.deleted_at = datetime.now(timezone.utc)
     # Job/phương án còn dở của ngoại lệ vừa xoá là rác — huỷ luôn, tránh

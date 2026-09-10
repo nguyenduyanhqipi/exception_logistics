@@ -244,6 +244,7 @@ export function Dashboard() {
                   onQuickCreate={() =>
                     navigate(`/exceptions/new?vehicle_id=${encodeURIComponent(m.vehicle.vehicle_id)}`)
                   }
+                  today={data?.shift_date ?? ""}
                 />
               ))}
             </tbody>
@@ -265,6 +266,10 @@ interface VehicleRowsProps {
   setOpenStop: (s: string | null) => void;
   onOpenException: (exc: DashboardOpenException) => void;
   onQuickCreate: () => void;
+  /** Ngày hôm nay theo GIỜ SERVER (data.shift_date), không lấy giờ máy người
+   *  dùng — cột "Số đơn/chuyến" và nút "+ Ngoại lệ" phải khớp đúng cái mà
+   *  backend coi là hôm nay, nếu không sẽ lệch nhau lúc gần nửa đêm. */
+  today: string;
 }
 
 function VehicleRows({
@@ -278,11 +283,20 @@ function VehicleRows({
   setOpenStop,
   onOpenException,
   onQuickCreate,
+  today,
 }: VehicleRowsProps) {
   // Khi tìm thấy đơn hàng trong 1 chuyến đang thu gọn, nhánh xe -> chuyến -> đơn
   // đó tự bung để thấy ngay, không bắt bấm mở từng cấp.
   const isTripOpen = (scheduleId: string) => openTrip === scheduleId || match.autoTrip === scheduleId;
   const isStopOpen = (stopId: string) => openStop === stopId || match.autoStops.includes(stopId);
+
+  // Quyết định 5 (2026-09-08): cột "Số đơn/chuyến" CHỈ tính hôm nay — trước đây
+  // cộng cả `trips` của mọi ngày (gộp chuyến quá khứ lẫn tương lai) nên con số
+  // không nói lên điều gì về hôm nay. Đếm từ `v.trips` (ĐÃ lọc chuyến bị khoá)
+  // chứ không dùng `today_order_count` của backend, cùng lý do với `totalOrders`
+  // ở trên: chuyến không hiện trong bảng thì đơn của nó cũng không được tính.
+  const todayTrips = v.trips.filter((t) => t.shift_date === today);
+  const todayOrders = todayTrips.reduce((n, t) => n + t.order_count, 0);
 
   return (
     <>
@@ -297,8 +311,8 @@ function VehicleRows({
           {v.driver_phone && <span className="drill-muted"> · {v.driver_phone}</span>}
         </td>
         <td>
-          {v.trips.reduce((n, t) => n + t.order_count, 0)} đơn
-          <span className="drill-muted"> · {v.trips.length} chuyến</span>
+          {todayOrders} đơn
+          <span className="drill-muted"> · {todayTrips.length} chuyến</span>
         </td>
         <td>
           {v.open_exceptions.length === 0 ? (
@@ -332,16 +346,24 @@ function VehicleRows({
           )}
         </td>
         <td>
-          <button
-            type="button"
-            className="primary drill-quick-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onQuickCreate();
-            }}
-          >
-            + Ngoại lệ
-          </button>
+          {/* Xe không có chuyến hôm nay thì ẨN HẲN nút (Quyết định 5): bấm vào
+              chỉ ra thẳng màn lỗi "Chưa có kế hoạch giao hàng cho hôm nay", vì
+              NewException.tsx chặn cứng việc gắn ngoại lệ vào chuyến ngày khác.
+              Ẩn hẳn thay vì làm mờ — nhất quán với nút "Sửa kết quả" ở Gap 1. */}
+          {todayTrips.length > 0 ? (
+            <button
+              type="button"
+              className="primary drill-quick-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickCreate();
+              }}
+            >
+              + Ngoại lệ
+            </button>
+          ) : (
+            <span className="drill-muted">Không có chuyến hôm nay</span>
+          )}
         </td>
       </tr>
 

@@ -186,7 +186,9 @@ export interface DashboardVehicle {
   driver_phone: string | null;
   vehicle_type: string | null;
   vehicle_status: string | null;
+  /** Chỉ đếm chuyến của HÔM NAY (không phải mọi ngày trong `trips`). */
   today_order_count: number;
+  today_trip_count: number;
   /** Bỏ tầng "ca" (2026-09-05) — xe -> chuyến, mỗi chuyến tự mang shift_date. */
   trips: DashboardTrip[];
   open_exceptions: DashboardOpenException[];
