@@ -160,10 +160,21 @@ and the vehicle cannot continue on its current path — a route change is requir
 optional.
 
 Consider when generating options:
-- The most viable alternate route and its added distance, time, and fuel cost.
-- Whether it is cheaper to reassign one or more remaining stops to a different nearby
-  vehicle instead of detouring the whole route.
+- The most viable alternate route from the vehicle's CURRENT position and its added
+  distance, time, and fuel cost.
 - Immediate ETA updates to every customer whose stop is affected by the detour.
+- Whether waiting for the closure to clear is realistic given what's described, versus
+  detouring now.
+
+IMPORTANT: CONTEXT does NOT include the position or availability of any other vehicle
+in the fleet (no real-time GPS fleet tracking exists yet — this is a planned future
+capability, not available today). Do NOT propose reassigning a stop's cargo to another
+vehicle by name, and do NOT invent that vehicle's location, availability, cost, or time
+— you have no way to know if it exists or where it is. Every option here must be
+something the vehicle in CONTEXT (or the dispatcher/customer) can actually do: rerouting
+itself from its current position, waiting, or escalating for manual dispatcher judgment.
+If a fleet-wide reassignment might genuinely help, phrase it only as a generic note for
+the dispatcher to check manually — never as a concrete plan naming a specific vehicle.
 
 Structured signals in CONTEXT (trust these over free-text description):
 - current_address (and current_lat/current_lng when available): where the vehicle is
