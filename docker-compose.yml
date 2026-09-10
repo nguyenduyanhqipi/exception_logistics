@@ -48,6 +48,12 @@ services:
       context: ./frontend
       args:
         VITE_API_URL: http://34.142.218.150:8000
+        # Lấy từ `.env` ở gốc repo (KHÔNG hardcode key vào file được commit).
+        # Đây là key TILEMAP — key này buộc phải ra trình duyệt vì nằm trong
+        # style URL mà SDK bản đồ tải; bảo vệ bằng giới hạn domain/IP trong
+        # Console VietMap. Key API (Route v4/Static Map) thì KHÔNG bao giờ ra
+        # đây, chỉ `api`/`worker` đọc qua env_file.
+        VITE_VIETMAP_TILEMAP_KEY: ${VITE_VIETMAP_TILEMAP_KEY}
     ports:
       - "80:80"
     depends_on:

@@ -15,9 +15,18 @@ VM Ubuntu, IP tĩnh `34.142.218.150`, đã cài Docker. Chạy toàn bộ 4 serv
 
 1. SSH vào VM, `git clone`/`git pull` repo này.
 2. Tạo `.env` ở gốc repo (dùng `.env.example` làm mẫu) — điền `GEMINI_API_KEY`
-   (`_2`/`_3` nếu có), `VIETMAP_API_KEY`, `JWT_SECRET` (chuỗi ngẫu nhiên dài),
-   `SENTRY_DSN` (tuỳ chọn). `DATABASE_URL` KHÔNG cần điền — `docker-compose.yml`
-   đã tự trỏ `api`/`worker` vào service `db` nội bộ.
+   (`_2`/`_3` nếu có), `JWT_SECRET` (chuỗi ngẫu nhiên dài), `SENTRY_DSN` (tuỳ
+   chọn) và BA biến VietMap:
+   - `VIETMAP_API_KEY` — Route v4 + Static Map, chỉ backend đọc.
+   - `VIETMAP_TILEMAP_KEY` — key tilemap (để đối chiếu/cấu hình, backend không
+     dùng trực tiếp).
+   - `VITE_VIETMAP_TILEMAP_KEY` — CÙNG giá trị key tilemap, nhưng phải đặt ở
+     `.env` gốc vì `docker-compose.yml` truyền nó xuống build arg của service
+     `frontend`. Vite bake biến `VITE_*` vào bundle NGAY LÚC BUILD; thiếu biến
+     này thì bản deploy ra bản đồ trắng trơn mà log không báo lỗi gì.
+
+   `DATABASE_URL` KHÔNG cần điền — `docker-compose.yml` đã tự trỏ `api`/`worker`
+   vào service `db` nội bộ.
 3. `docker compose up -d --build`. Service `frontend` build với build arg
    `VITE_API_URL=http://34.142.218.150:8000` cố định sẵn trong
    `docker-compose.yml` — nếu đổi IP/domain, sửa giá trị này trước khi build
