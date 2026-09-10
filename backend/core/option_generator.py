@@ -54,6 +54,31 @@ class QuotaExceededError(RuntimeError):
     (job_processor) bắt lỗi này để chuyển sang cho dispatcher nhập phương án
     thủ công, KHÔNG crash worker."""
 
+# Tín hiệu định lượng dispatcher nhập lúc tạo/sửa ngoại lệ, lưu nguyên bản ở
+# `exceptions.input_context` (xem models/exception.py). Mỗi sub_type CHỈ hỏi
+# đúng 1-2 số liệu (frontend/src/exceptionForm.ts::EXTRA_FIELD + 2 câu hỏi phụ
+# depot_on_time/has_injury), nên bảng dưới liệt kê theo sub_type để CONTEXT
+# không lẫn field của sub_type khác vào — LLM thấy `estimated_repair_min`
+# trong một ngoại lệ sai địa chỉ chỉ tổ gây nhiễu.
+#
+# TÊN FIELD GIỮ NGUYÊN VĂN như trong input_context/EXTRA_FIELD: SYSTEM_PROMPT
+# (scripts/seed_prompts.py) đã gọi đích danh `has_injury`, `is_repeat_delivery`
+# là "structured fields already in CONTEXT" — đổi tên ở đây là prompt nói về
+# field không tồn tại.
+_INPUT_CONTEXT_SIGNALS = {
+    "late_departure": ("departure_delay_min", "depot_on_time"),
+    "unknown_delay": ("driver_contact_lost_min",),
+    "traffic_jam": ("estimated_traffic_duration_min",),
+    "customer_absent": ("is_repeat_delivery",),
+    "wrong_address": ("new_address_distance_km",),
+    "change_time": ("has_time_conflict",),
+    "change_location": ("new_location_distance_km",),
+    "minor_breakdown": ("estimated_repair_min",),
+    "accident": ("has_injury",),
+    # slow_loading / road_closed / customer_dispute / cancel_order /
+    # major_breakdown: form không hỏi số liệu nào, không có gì để thêm.
+}
+
 _STOP_FIELDS_FOR_CONTEXT = (
     "stop_id",
     "order_id",
@@ -91,7 +116,7 @@ def build_context(db: Session, exception: Exception_) -> dict:
     if vehicle is not None:
         cost_per_km = vehicle.cost_per_km if vehicle.cost_per_km is not None else (company.default_cost_per_km if company else None)
 
-    return {
+    context = {
         "exception_id": str(exception.exception_id),
         "exception": {
             "exception_group": exception.exception_group,
@@ -126,6 +151,26 @@ def build_context(db: Session, exception: Exception_) -> dict:
         "distance_info": _build_distance_info(db, exception.area, schedule),
         "ranking_weights": company.ranking_weights if company else None,
     }
+
+    # Trước đây các tín hiệu này chỉ đi qua `rule_engine.calculate_severity()`
+    # một lần để chốt severity rồi bị bỏ, LLM KHÔNG hề thấy con số nào — nó
+    # phải tự đoán "trễ bao nhiêu", "sửa xe mất bao lâu" từ mỗi nhãn severity.
+    # Đưa vào CONTEXT để LLM có đúng con số dispatcher đã nhập, và để
+    # SYSTEM_PROMPT khỏi nói về structured field không tồn tại.
+    #
+    # `or {}`: ngoại lệ tạo TRƯỚC migration f5a6b7c8d9e0 có input_context=NULL,
+    # không được để chúng làm vỡ luồng sinh phương án.
+    input_context = exception.input_context or {}
+    for field in _INPUT_CONTEXT_SIGNALS.get(exception.sub_type, ()):
+        value = input_context.get(field)
+        # Dispatcher bỏ trống thì BỎ HẲN key, không set null: field vắng mặt
+        # nghĩa là "không có thông tin", còn `"has_injury": null` nằm chình
+        # ình trong CONTEXT rất dễ bị LLM đọc thành "đã kiểm tra, không có ai
+        # bị thương" — sai đúng chỗ nhạy cảm nhất.
+        if value is not None:
+            context["exception"][field] = value
+
+    return context
 
 
 def _build_distance_info(db: Session, origin_area: "str | None", schedule: "Schedule | None") -> "list[dict] | None":

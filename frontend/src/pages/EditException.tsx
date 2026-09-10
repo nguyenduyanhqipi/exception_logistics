@@ -80,8 +80,10 @@ export function EditException() {
     setDelayMinutes(typeof ctx.delay_minutes === "number" ? String(ctx.delay_minutes) : "0");
 
     setArea(data.area ?? "");
-    // Ghi chú người dùng gõ nằm ở `input_context.description`;
-    // `data.description` đã bị nối thêm `description_note` do rule engine sinh.
+    // Ghi chú người dùng gõ nằm ở `input_context.description`. Vẫn ưu tiên nó
+    // hơn `data.description`: với ngoại lệ CŨ (tạo hồi backend còn nối thêm
+    // câu mô tả do rule engine sinh vào description), `data.description` có
+    // lẫn câu đó, còn input_context thì không.
     setDescription((ctx.description as string) ?? data.description ?? "");
     if (data.customer_accepted_delay_min !== null && data.customer_accepted_delay_min !== undefined) {
       setCustomerAcceptedDelayAnswer("yes");

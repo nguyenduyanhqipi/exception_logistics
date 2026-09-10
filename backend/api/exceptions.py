@@ -33,9 +33,10 @@ ACTIVE_STATUSES = ("pending", "analyzing", "awaiting_decision")
 # models/exception.py::Exception_.input_context.
 _SIGNAL_FIELDS = (
     "answer_key",
-    # Ghi chú NGƯỜI DÙNG gõ, tách khỏi `exceptions.description` (đã bị nối
-    # thêm `description_note` do rule engine sinh) để form sửa nạp lại đúng
-    # phần người dùng viết, không nối chồng note cũ.
+    # Ghi chú NGƯỜI DÙNG gõ. Từ khi bỏ `description_note`, nó trùng đúng với
+    # `exceptions.description`; vẫn giữ ở đây để form sửa có một nguồn duy
+    # nhất cho mọi ô đã nhập, và để ngoại lệ CŨ (description còn dính note do
+    # rule engine sinh) nạp lại được đúng phần người dùng viết.
     "description",
     "depot_on_time",
     "has_injury",
@@ -118,9 +119,7 @@ def create_exception(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy chuyến")
 
     try:
-        classification = classify_sub_type(
-            payload.exception_group, payload.answer_key, payload.depot_on_time, payload.has_injury
-        )
+        classification = classify_sub_type(payload.exception_group, payload.answer_key, payload.depot_on_time)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -154,8 +153,6 @@ def create_exception(
     }
     severity = calculate_severity(sub_type, rule_context)
 
-    description_parts = [p for p in [payload.description, classification["description_note"]] if p]
-
     exception = Exception_(
         company_id=current_user["company_id"],
         schedule_id=schedule.schedule_id,
@@ -164,7 +161,12 @@ def create_exception(
         severity=severity,
         vehicle_id=schedule.vehicle_id,
         area=payload.area,
-        description=" | ".join(description_parts) if description_parts else None,
+        # CHỈ ghi chú dispatcher tự gõ — đúng nhãn UI "Ghi chú thêm (không dùng
+        # để phân loại)". Câu mô tả do rule engine sinh (depot_on_time/
+        # has_injury) đã bỏ: hai tín hiệu đó nay vào thẳng CONTEXT dưới dạng
+        # structured field (option_generator.py), kể lại bằng lời ở đây chỉ tạo
+        # thêm một nguồn sự thật thứ hai có thể lệch pha sau khi dispatcher sửa.
+        description=payload.description or None,
         customer_accepted_delay_min=payload.customer_accepted_delay_min,
         input_context=_input_context(payload),
         status="pending",
@@ -520,9 +522,7 @@ def update_exception(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy chuyến của ngoại lệ này")
 
     try:
-        classification = classify_sub_type(
-            payload.exception_group, payload.answer_key, payload.depot_on_time, payload.has_injury
-        )
+        classification = classify_sub_type(payload.exception_group, payload.answer_key, payload.depot_on_time)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -552,19 +552,15 @@ def update_exception(
     severity_before = exc.severity
     severity = calculate_severity(sub_type, rule_context)
 
-    # Không nối chồng `description_note` nếu nó đã nằm sẵn trong ghi chú (xảy
-    # ra với ngoại lệ tạo trước khi có `input_context`: form sửa nạp lại cả
-    # phần note đã nối lần trước).
-    note = classification["description_note"]
-    description_parts = [p for p in [payload.description] if p]
-    if note and (not payload.description or note not in payload.description):
-        description_parts.append(note)
-
     exc.exception_group = payload.exception_group
     exc.sub_type = sub_type
     exc.severity = severity
     exc.area = payload.area
-    exc.description = " | ".join(description_parts) if description_parts else None
+    # Cùng lý do như create_exception: description chỉ còn ghi chú dispatcher
+    # gõ. Với ngoại lệ CŨ, lần sửa này cũng là lúc câu note rule engine từng
+    # nối vào biến mất khỏi description — đúng ý muốn, vì tín hiệu thật đã nằm
+    # ở input_context/CONTEXT.
+    exc.description = payload.description or None
     exc.customer_accepted_delay_min = payload.customer_accepted_delay_min
     exc.input_context = _input_context(payload)
 

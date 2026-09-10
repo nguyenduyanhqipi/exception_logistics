@@ -46,16 +46,23 @@ def classify_sub_type(
     exception_group: str,
     answer_key: str,
     depot_on_time: bool | None = None,
-    has_injury: bool | None = None,
 ) -> dict:
     """Chốt sub_type từ câu trả lời trắc nghiệm (mục 5.1).
 
-    Trả về dict {sub_type, suggested_sub_type, description_note}:
+    Trả về dict {sub_type, suggested_sub_type}:
     - `suggested_sub_type`: chỉ có giá trị cho câu hỏi phụ của `delay` khi
       `depot_on_time=True` — gợi ý dispatcher cân nhắc đổi sang `slow_loading`,
       KHÔNG tự động đổi `sub_type` (spec mục 5.1: "không đổi sub_type").
-    - `description_note`: câu trả lời phụ, dispatcher/LLM dùng để hiểu đúng
-      gốc rễ — ghi vào `exceptions.description`, không dùng để phân loại.
+
+    Hàm này KHÔNG còn sinh câu mô tả cho `exceptions.description` (trước đây là
+    `description_note`, kể lại depot_on_time/has_injury bằng lời). Lý do bỏ:
+    hai câu trả lời phụ đó đã là structured field thật trong CONTEXT gửi LLM
+    (option_generator.py::_INPUT_CONTEXT_SIGNALS), giữ thêm bản kể-bằng-lời là
+    2 nguồn cho cùng 1 sự thật — dispatcher sửa `has_injury` mà câu text cũ còn
+    nguyên thì LLM nhận 2 tín hiệu mâu thuẫn đúng ở chỗ an toàn con người, tệ
+    hơn hẳn việc thiếu một câu mô tả. `has_injury` vì thế cũng không còn là
+    tham số của hàm này; nó vẫn đi thẳng vào `calculate_severity()` (quy tắc
+    toàn cục #1) và vào CONTEXT như cũ.
     """
     if exception_group not in VALID_EXCEPTION_GROUPS:
         raise InvalidAnswerError(f"exception_group không hợp lệ: {exception_group}")
@@ -67,20 +74,10 @@ def classify_sub_type(
         )
 
     sub_type = mapping[answer_key]
-    result = {"sub_type": sub_type, "suggested_sub_type": None, "description_note": None}
+    result = {"sub_type": sub_type, "suggested_sub_type": None}
 
-    if exception_group == "delay" and sub_type == "late_departure" and depot_on_time is not None:
-        if depot_on_time:
-            result["suggested_sub_type"] = "slow_loading"
-            result["description_note"] = (
-                "Xe/tài xế có mặt tại kho đúng giờ nhưng xuất phát trễ — "
-                "nguyên nhân thực chất là bốc hàng chậm tại kho."
-            )
-        else:
-            result["description_note"] = "Xe/tài xế đến kho đã trễ (không phải do bốc hàng chậm)."
-
-    if exception_group == "vehicle_issue" and sub_type == "accident" and has_injury is not None:
-        result["description_note"] = "Có người bị thương." if has_injury else "Không có người bị thương."
+    if exception_group == "delay" and sub_type == "late_departure" and depot_on_time:
+        result["suggested_sub_type"] = "slow_loading"
 
     return result
 
