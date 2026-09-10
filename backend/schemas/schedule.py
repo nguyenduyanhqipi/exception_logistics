@@ -51,7 +51,12 @@ class ScheduleCreate(BaseModel):
     vehicle_id: str = Field(min_length=1)
     shift_date: date
     trip_sequence: int = 1
-    depot_arrival_time: Optional[time] = None
+    # BẮT BUỘC (2026-09-06): thiếu nó thì không tính được
+    # `planned_departure_time` và Dashboard mất hẳn dòng "xuất phát HH:MM".
+    # Không default -> Pydantic tự trả 422 khi form nhập tay bỏ trống.
+    # `depot_loading_duration_min` thì vẫn tuỳ chọn: thiếu = bốc 0 phút, giờ
+    # xuất phát vẫn tính được (api/schedules.py::_compute_planned_departure).
+    depot_arrival_time: time
     depot_loading_duration_min: Optional[int] = None
     depot_address: Optional[str] = None
     stops: list[StopCreate] = []

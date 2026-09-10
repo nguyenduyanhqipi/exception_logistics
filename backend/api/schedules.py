@@ -16,10 +16,22 @@ router = APIRouter(prefix="/api/schedules", tags=["schedules"])
 
 
 def _compute_planned_departure(arrival: time | None, loading_min: int | None) -> time | None:
-    if arrival is None or loading_min is None:
+    """Giờ xuất phát = giờ có mặt tại kho + phút bốc hàng.
+
+    `loading_min` thiếu KHÔNG còn làm mất trắng giờ xuất phát (đổi 2026-09-06):
+    trước đây thiếu 1 trong 2 field là trả None, mà cả 2 đều tuỳ chọn nên rất
+    dễ rơi vào cảnh Dashboard không hiện được dòng "xuất phát HH:MM" —
+    dispatcher mất luôn mốc để đối chiếu lại sau. Nay `depot_arrival_time` là
+    bắt buộc (schemas/schedule.py + excel_parser.py), còn thiếu phút bốc hàng
+    thì hiểu là bốc mất 0 phút, xuất phát đúng lúc có mặt tại kho.
+
+    Vẫn giữ nhánh `arrival is None` -> None cho chuyến CŨ tạo trước thay đổi
+    này (cột trong DB vẫn nullable, không migration).
+    """
+    if arrival is None:
         return None
     dt = datetime.combine(date.today(), arrival)
-    return (dt + timedelta(minutes=loading_min)).time()
+    return (dt + timedelta(minutes=loading_min or 0)).time()
 
 
 def _stop_to_dict(stop: StopCreate) -> dict:

@@ -69,11 +69,14 @@ def _compute_planned_departure(arrival: "time | None", loading_min: "int | None"
     schedule trực tiếp qua ORM ở đây (không qua API) nên phải tự tính lại,
     KHÔNG được để trống (bug thật gặp lúc test 10.3: thiếu field này làm
     frontend không hỏi câu phụ 'xe có mặt tại kho đúng giờ không' vì điều
-    kiện hiển thị dựa vào planned_departure_time có giá trị hay không)."""
-    if arrival is None or loading_min is None:
+    kiện hiển thị dựa vào planned_departure_time có giá trị hay không).
+
+    Cập nhật 2026-09-06 cùng lúc với bản gốc: thiếu `loading_min` = bốc 0 phút
+    (không còn trả None), chỉ `arrival is None` mới trả None."""
+    if arrival is None:
         return None
     dt = datetime.combine(date.today(), arrival)
-    return (dt + timedelta(minutes=loading_min)).time()
+    return (dt + timedelta(minutes=loading_min or 0)).time()
 
 
 def _upsert_schedule(db, vehicle_id, shift_date_val, trip_sequence, stops, depot_arrival_time=None, depot_loading_duration_min=None):

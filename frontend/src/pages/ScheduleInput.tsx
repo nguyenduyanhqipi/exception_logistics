@@ -107,8 +107,8 @@ export function ScheduleForm() {
 
         <div style={{ display: "flex", gap: 16 }}>
           <div className="form-field" style={{ flex: 1 }}>
-            <label>Giờ có mặt tại kho (tuỳ chọn)</label>
-            <input type="time" value={depotArrivalTime} onChange={(e) => setDepotArrivalTime(e.target.value)} />
+            <label>Giờ có mặt tại kho</label>
+            <input type="time" value={depotArrivalTime} onChange={(e) => setDepotArrivalTime(e.target.value)} required />
           </div>
           <div className="form-field" style={{ flex: 1 }}>
             <label>Phút bốc hàng dự kiến tại kho (tuỳ chọn)</label>
@@ -179,7 +179,7 @@ export function ScheduleForm() {
         </button>
 
         <div style={{ marginTop: 16 }}>
-          <button type="submit" className="primary" disabled={submitting || !vehicleId || !shiftDate}>
+          <button type="submit" className="primary" disabled={submitting || !vehicleId || !shiftDate || !depotArrivalTime}>
             {submitting ? "Đang lưu..." : "Tạo chuyến"}
           </button>
         </div>

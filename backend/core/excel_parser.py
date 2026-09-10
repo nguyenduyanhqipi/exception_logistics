@@ -208,6 +208,15 @@ def parse_schedule_sheet(file_bytes: bytes) -> tuple[list[dict], list[str]]:
         has_depot_arrival = not (depot_arrival is None or (isinstance(depot_arrival, float) and pd.isna(depot_arrival)))
         has_depot_loading = not (depot_loading is None or (isinstance(depot_loading, float) and pd.isna(depot_loading)))
 
+        # Hàng đầu của mỗi chuyến PHẢI có giờ có mặt tại kho (2026-09-06) —
+        # cùng luật với form nhập tay (schemas/schedule.py). Chặn ngay ở parser
+        # thay vì để lọt: `upload_schedules` dựng thẳng Schedule từ dict này,
+        # không đi qua `ScheduleCreate` nên Pydantic không đỡ giúp được.
+        if is_first_of_group and not has_depot_arrival:
+            errors.append(
+                f"Hàng {row_num}: thiếu giờ có mặt tại kho (depot_arrival_time) — bắt buộc ở hàng đầu tiên của mỗi chuyến"
+            )
+
         if not is_first_of_group and (has_depot_arrival or has_depot_loading):
             errors.append(
                 f"Hàng {row_num}: depot_arrival_time/depot_loading_duration_min chỉ được điền ở hàng đầu tiên của chuyến"

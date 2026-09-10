@@ -168,15 +168,19 @@ schedules (
   shift_label TEXT,          -- 'ca_sang', 'ca_chieu', 'ca_dem'
   trip_sequence INT DEFAULT 1,  -- thứ tự chuyến trong ca (1 = chuyến đầu/duy nhất; 2 = chuyến 2 cùng ca...)
   depot_arrival_time TIME NULLABLE,  -- giờ dự kiến xe/tài xế CÓ MẶT tại kho để bắt đầu bốc hàng CHO
-                                  -- CHUYẾN NÀY — nhập tay, neo vào ĐẦU chuyến, không lặp theo từng đơn
+                                  -- CHUYẾN NÀY — nhập tay, neo vào ĐẦU chuyến, không lặp theo từng đơn.
+                                  -- BẮT BUỘC khi nhập chuyến MỚI (form tay + Excel, 2026-09-06) — cột
+                                  -- vẫn NULLABLE để chuyến CŨ tạo trước mốc đó không phải migration
   depot_loading_duration_min INT NULLABLE,  -- phút bốc hàng dự kiến tại kho CHO CHUYẾN NÀY — nhập tay,
                                   -- cùng cấp với depot_arrival_time (không phải loading_duration_min
                                   -- trong stops[], cái đó là bốc/dỡ TẠI TỪNG ĐIỂM giữa/cuối tuyến)
   planned_departure_time TIME,   -- KHÔNG nhập tay — backend tự tính = depot_arrival_time +
                                   -- depot_loading_duration_min khi lưu chuyến. Giữ làm cột riêng để
                                   -- rule engine (mục 5.1, 'late_departure'/'slow_loading') và các nơi
-                                  -- khác truy vấn trực tiếp mà không phải tính lại mỗi lần. Nếu thiếu
-                                  -- 1 trong 2 giá trị đầu vào thì NULL — dispatcher nhập tay bù khi cần
+                                  -- khác truy vấn trực tiếp mà không phải tính lại mỗi lần. Thiếu
+                                  -- depot_loading_duration_min thì coi như bốc 0 phút (xuất phát ngay
+                                  -- lúc có mặt tại kho), CHỈ NULL khi depot_arrival_time NULL — tức chỉ
+                                  -- còn ở chuyến cũ tạo trước 2026-09-06
   depot_address TEXT,        -- NULL = dùng companies.default_depot_address; chỉ set khi chuyến này xuất phát nơi khác
   stops JSONB,               -- [{stop_id, stop_order, stop_type('lay_hang'|'giao_hang'), address, area,
                               --   lat, lng, order_id, customer_name, customer_phone, eta, loading_duration_min,
@@ -568,8 +572,8 @@ Không phải "nhập 1 lần rồi quên" — xe đổi tài xế theo chu kỳ
 | shift_date | date (DD/MM/YYYY) | ✅* | Ngày chạy |
 | shift_label | text | ✅* | ca_sang / ca_chieu / ca_dem |
 | trip_sequence | int | ❌* | Chuyến thứ mấy trong ca — **bỏ trống = 1**. 1 xe có thể chạy nhiều chuyến trong cùng 1 ca (đi giao, quay về kho lấy thêm, đi tiếp) — chỉ điền 2, 3... khi thực sự có chuyến thứ 2 trở đi |
-| depot_arrival_time | time (HH:MM) | ❌** | Giờ xe/tài xế CÓ MẶT tại kho để bắt đầu bốc hàng — **chỉ điền ở hàng ĐẦU TIÊN của mỗi chuyến**, để trống ở các hàng điểm giao tiếp theo cùng chuyến đó |
-| depot_loading_duration_min | number | ❌** | Phút bốc hàng dự kiến tại kho — cũng **chỉ điền ở hàng đầu tiên của chuyến**. Hệ thống tự tính giờ xuất phát = `depot_arrival_time + depot_loading_duration_min` (không có cột riêng để nhập giờ xuất phát) |
+| depot_arrival_time | time (HH:MM) | ✅** | Giờ xe/tài xế CÓ MẶT tại kho để bắt đầu bốc hàng — **bắt buộc ở hàng ĐẦU TIÊN của mỗi chuyến** (2026-09-06), để trống ở các hàng điểm giao tiếp theo cùng chuyến đó |
+| depot_loading_duration_min | number | ❌** | Phút bốc hàng dự kiến tại kho — cũng **chỉ điền ở hàng đầu tiên của chuyến**, nhưng KHÔNG bắt buộc: để trống = bốc 0 phút. Hệ thống tự tính giờ xuất phát = `depot_arrival_time + depot_loading_duration_min` (không có cột riêng để nhập giờ xuất phát) |
 | stop_order | int | ✅ | Thứ tự điểm giao (1, 2, 3...) trong chuyến |
 | stop_type | text | ✅ | `lay_hang` (pickup giữa tuyến) hoặc `giao_hang` (delivery) — mặc định `giao_hang` |
 | stop_address | text | ✅ | Địa chỉ điểm giao/lấy hàng |
@@ -602,7 +606,7 @@ df["trip_sequence"] = df["trip_sequence"].fillna(1).astype(int)
 - `vehicle_id` (sau khi forward-fill), `order_id`, `stop_address` không được để trống
 - `vehicle_id` phải tồn tại trong `vehicles` với `status='active'` (báo lỗi rõ nếu chưa khai báo xe: *"Xe B07 chưa có trong Danh_muc_xe — thêm xe trước khi nhập kế hoạch"*)
 - `stop_type` chỉ nhận `lay_hang`/`giao_hang`; `priority_tier` chỉ nhận `thuong`/`vip`/`hop_dong_phat`; `cargo_type` chỉ nhận `normal`/`bulky`
-- Nếu có `depot_loading_duration_min` mà thiếu `depot_arrival_time` (hoặc ngược lại) → cảnh báo (không chặn): `planned_departure_time` sẽ để trống vì thiếu 1 trong 2 giá trị đầu vào
+- Thiếu `depot_arrival_time` ở hàng đầu tiên của 1 chuyến → **CHẶN cả file** (đổi 2026-09-06, trước đây chỉ cảnh báo): *"Hàng 12: thiếu giờ có mặt tại kho (depot_arrival_time) — bắt buộc ở hàng đầu tiên của mỗi chuyến"*. Lý do siết lại: thiếu nó thì `planned_departure_time` NULL, Dashboard mất hẳn dòng "xuất phát HH:MM" và dispatcher không còn mốc kế hoạch nào để đối chiếu khi có ngoại lệ trễ giờ. Riêng `depot_loading_duration_min` thiếu thì KHÔNG chặn — hiểu là bốc 0 phút, giờ xuất phát = đúng giờ có mặt tại kho
 - Báo lỗi cụ thể từng ô: "Sheet Ke_hoach_giao_hang, hàng 5, cột eta: định dạng sai. Cần HH:MM"
 
 ---
