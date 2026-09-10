@@ -66,17 +66,29 @@ class QuotaExceededError(RuntimeError):
 # là "structured fields already in CONTEXT" — đổi tên ở đây là prompt nói về
 # field không tồn tại.
 _INPUT_CONTEXT_SIGNALS = {
-    "late_departure": ("departure_delay_min", "depot_on_time"),
+    "late_departure": (
+        "departure_status",
+        "departure_delay_min",
+        "estimated_departure_delay_min",
+        "late_departure_cause",
+        "departed_late_cause",
+    ),
     "unknown_delay": ("driver_contact_lost_min",),
     "traffic_jam": ("estimated_traffic_duration_min",),
-    "customer_absent": ("is_repeat_delivery",),
-    "wrong_address": ("new_address_distance_km",),
+    "road_closed": ("current_lat", "current_lng", "current_address"),
+    "customer_absent": ("contacted_customer", "customer_request", "is_repeat_delivery"),
+    "customer_dispute": ("dispute_type",),
     "change_time": ("has_time_conflict",),
     "change_location": ("new_location_distance_km",),
     "minor_breakdown": ("estimated_repair_min",),
-    "accident": ("has_injury",),
-    # slow_loading / road_closed / customer_dispute / cancel_order /
-    # major_breakdown: form không hỏi số liệu nào, không có gì để thêm.
+    "major_breakdown": ("current_lat", "current_lng", "current_address", "can_transfer_cargo_safely"),
+    "accident": ("has_injury", "vehicle_movable"),
+    # Sau redesign 2026-09-08 KHÔNG còn sub_type nào "trắng tín hiệu" — 11/11
+    # sub_type đều có ít nhất 1 câu trả lời phụ đi vào CONTEXT.
+    #
+    # 3 sub_type đã retire (slow_loading/wrong_address/cancel_order) cố ý VẮNG
+    # MẶT khỏi bảng này: ngoại lệ cũ mang chúng vẫn build_context() được, chỉ là
+    # không có tín hiệu nào để bơm thêm — đúng như trước khi có bảng này.
 }
 
 _STOP_FIELDS_FOR_CONTEXT = (

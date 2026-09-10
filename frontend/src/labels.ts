@@ -4,20 +4,26 @@
 // (GROUP_QUESTIONS/ANSWER_TO_SUBTYPE) — sub_type nào thêm ở đó thì thêm nhãn
 // tương ứng ở đây.
 export const SUB_TYPE_LABEL: Record<string, string> = {
+  // 11 sub_type đang dùng (redesign 2026-09-08)
   late_departure: "Xuất phát trễ",
-  slow_loading: "Chậm bốc/dỡ hàng",
-  unknown_delay: "Trễ không rõ lý do",
+  unknown_delay: "Mất liên lạc tài xế",
   traffic_jam: "Ùn tắc giao thông",
   road_closed: "Đường bị chặn/cấm",
   customer_absent: "Khách vắng mặt",
   customer_dispute: "Khách từ chối nhận",
-  wrong_address: "Sai địa chỉ",
   change_time: "Đổi giờ nhận hàng",
   change_location: "Đổi địa điểm giao",
-  cancel_order: "Hủy đơn",
   minor_breakdown: "Sự cố xe nhẹ",
   major_breakdown: "Sự cố xe nặng",
   accident: "Tai nạn giao thông",
+
+  // 3 sub_type ĐÃ RETIRE 2026-09-08 — không tạo mới được nữa
+  // (backend/core/rule_engine.py::RETIRED_SUB_TYPES), nhưng ngoại lệ CŨ trong
+  // DB vẫn mang chúng, nên PHẢI giữ nhãn ở đây: bỏ đi là trang Lịch sử/Báo cáo
+  // in ra mã tiếng Anh thô.
+  slow_loading: "Chậm bốc/dỡ hàng",
+  wrong_address: "Sai địa chỉ",
+  cancel_order: "Hủy đơn",
 };
 
 export function subTypeLabel(subType: string): string {

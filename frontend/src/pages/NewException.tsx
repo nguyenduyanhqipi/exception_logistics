@@ -3,11 +3,14 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import type { Schedule } from "../api/types";
+import { FollowUpFields } from "../components/FollowUpFields";
 import {
   ANSWER_TO_SUBTYPE,
-  EXTRA_FIELD,
+  DEPARTURE_DELAY_KEYS,
+  DERIVED_FIELDS,
   GROUP_QUESTIONS,
   localToday,
+  missingRequiredFollowUp,
   showsCustomerDelayTolerance,
 } from "../exceptionForm";
 
@@ -42,9 +45,11 @@ export function NewException() {
   const [scheduleId, setScheduleId] = useState("");
   const [group, setGroup] = useState("");
   const [answerKey, setAnswerKey] = useState("");
-  const [depotOnTime, setDepotOnTime] = useState<boolean | null>(null);
-  const [hasInjury, setHasInjury] = useState<boolean | null>(null);
-  const [extraValue, setExtraValue] = useState<string>("");
+  // Câu trả lời của MỌI câu hỏi phụ, gom vào 1 chỗ theo tên field backend
+  // (exceptionForm.ts::FOLLOW_UPS). Trước đây mỗi câu hỏi 1 useState riêng —
+  // thêm câu hỏi là thêm state + thêm dòng reset + thêm dòng payload, quên 1
+  // trong 3 là sinh bug im lặng.
+  const [followUps, setFollowUps] = useState<Record<string, unknown>>({});
   const [fromStopOrder, setFromStopOrder] = useState<number | "">("");
   const [affectsWholeRoute, setAffectsWholeRoute] = useState(true);
   const [toStopOrder, setToStopOrder] = useState<number | "">("");
@@ -84,9 +89,6 @@ export function NewException() {
     setScheduleId(picked.schedule_id);
   }, [prefillVehicleId, scheduleId, schedules, today]);
   const subType = group && answerKey ? ANSWER_TO_SUBTYPE[group]?.[answerKey] : null;
-  const extraField = subType ? EXTRA_FIELD[subType] : null;
-  const showDepotFollowUp = subType === "late_departure" && !!schedule?.planned_departure_time;
-  const showInjuryFollowUp = subType === "accident";
   // Chỉ nhóm ngoại lệ có khả năng gây TRỄ mới cần hỏi khách có chấp nhận trễ
   // không — customer_reject/customer_change là vấn đề tại điểm giao/đổi yêu
   // cầu, không phải trễ tiến độ, hỏi câu này ở đó không có ý nghĩa.
@@ -95,9 +97,7 @@ export function NewException() {
   function resetGroupChoice(newGroup: string) {
     setGroup(newGroup);
     setAnswerKey("");
-    setDepotOnTime(null);
-    setHasInjury(null);
-    setExtraValue("");
+    setFollowUps({});
     setCustomerAcceptedDelayAnswer("");
     setCustomerAcceptedDelayMinInput("");
     // customer_reject/customer_change chỉ ảnh hưởng ĐÚNG 1 điểm giao theo
@@ -124,11 +124,8 @@ export function NewException() {
         area: area || null,
         description: description || null,
       };
-      if (depotOnTime !== null) payload.depot_on_time = depotOnTime;
-      if (hasInjury !== null) payload.has_injury = hasInjury;
-      if (extraField && extraValue !== "") {
-        payload[extraField.key] = extraField.type === "boolean" ? extraValue === "true" : Number(extraValue);
-      }
+      // Field suy ra từ answer_key (vd departure_status) + mọi câu trả lời phụ.
+      Object.assign(payload, DERIVED_FIELDS[answerKey] ?? {}, followUps);
       if (showCustomerDelayTolerance && customerAcceptedDelayAnswer === "yes" && customerAcceptedDelayMinInput !== "") {
         payload.customer_accepted_delay_min = Number(customerAcceptedDelayMinInput) || 0;
       }
@@ -230,9 +227,7 @@ export function NewException() {
                     checked={answerKey === opt.key}
                     onChange={() => {
                       setAnswerKey(opt.key);
-                      setDepotOnTime(null);
-                      setHasInjury(null);
-                      setExtraValue("");
+                      setFollowUps({});
                     }}
                   />
                   {opt.label}
@@ -242,68 +237,18 @@ export function NewException() {
           </div>
         )}
 
-        {showDepotFollowUp && answerKey === "chua_xuat_phat" && (
-          <div className="form-field">
-            <label>Xe/tài xế có mặt tại kho đúng giờ không?</label>
-            <div className="radio-group">
-              <label className={`radio-option ${depotOnTime === true ? "selected" : ""}`}>
-                <input type="radio" checked={depotOnTime === true} onChange={() => setDepotOnTime(true)} />
-                Có (đến kho đúng giờ nhưng xuất phát trễ)
-              </label>
-              <label className={`radio-option ${depotOnTime === false ? "selected" : ""}`}>
-                <input type="radio" checked={depotOnTime === false} onChange={() => setDepotOnTime(false)} />
-                Không (bản thân đến kho đã trễ)
-              </label>
-            </div>
-          </div>
-        )}
-
-        {showInjuryFollowUp && (
-          <div className="form-field">
-            <label>Có ai bị thương không?</label>
-            <div className="radio-group">
-              <label className={`radio-option ${hasInjury === true ? "selected" : ""}`}>
-                <input type="radio" checked={hasInjury === true} onChange={() => setHasInjury(true)} />
-                Có
-              </label>
-              <label className={`radio-option ${hasInjury === false ? "selected" : ""}`}>
-                <input type="radio" checked={hasInjury === false} onChange={() => setHasInjury(false)} />
-                Không
-              </label>
-            </div>
-          </div>
-        )}
-
-        {extraField && (
-          <div className="form-field">
-            <label>{extraField.label}</label>
-            {extraField.type === "number" ? (
-              <input
-                type="number"
-                min={0}
-                value={extraValue}
-                onChange={(e) => {
-                  setExtraValue(e.target.value);
-                  // late_departure: trễ xuất phát N phút nghĩa là MỌI điểm phía
-                  // sau cũng trễ đúng N phút đó (mục 15, kịch bản 1) — cùng 1 con
-                  // số, không phải 2 input độc lập, tự đồng bộ để tránh dispatcher
-                  // quên điền ô "delay_minutes" bên dưới.
-                  if (subType === "late_departure") setDelayMinutes(e.target.value);
-                }}
-              />
-            ) : (
-              <div className="radio-group">
-                <label className={`radio-option ${extraValue === "true" ? "selected" : ""}`}>
-                  <input type="radio" checked={extraValue === "true"} onChange={() => setExtraValue("true")} />
-                  Có
-                </label>
-                <label className={`radio-option ${extraValue === "false" ? "selected" : ""}`}>
-                  <input type="radio" checked={extraValue === "false"} onChange={() => setExtraValue("false")} />
-                  Không
-                </label>
-              </div>
-            )}
-          </div>
+        {answerKey && (
+          <FollowUpFields
+            answerKey={answerKey}
+            answers={followUps}
+            onChange={(key, value) => {
+              setFollowUps((prev) => ({ ...prev, [key]: value }));
+              // Trễ xuất phát N phút nghĩa là MỌI điểm phía sau cũng trễ đúng N
+              // phút đó (mục 15, kịch bản 1) — cùng 1 con số, không phải 2 input
+              // độc lập; tự đồng bộ để dispatcher khỏi quên ô "delay_minutes".
+              if (DEPARTURE_DELAY_KEYS.includes(key)) setDelayMinutes(value === undefined ? "0" : String(value));
+            }}
+          />
         )}
 
         {schedule && answerKey && (
@@ -416,7 +361,18 @@ export function NewException() {
           />
         </div>
 
-        <button type="submit" className="primary" disabled={submitting || !scheduleId || !group || !answerKey || fromStopOrder === ""}>
+        <button
+          type="submit"
+          className="primary"
+          disabled={
+            submitting ||
+            !scheduleId ||
+            !group ||
+            !answerKey ||
+            fromStopOrder === "" ||
+            missingRequiredFollowUp(answerKey, followUps)
+          }
+        >
           {submitting ? "Đang gửi..." : "Tạo ngoại lệ"}
         </button>
       </form>

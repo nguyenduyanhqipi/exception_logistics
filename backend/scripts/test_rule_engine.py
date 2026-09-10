@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.rule_engine import calculate_severity, classify_sub_type
+from core.rule_engine import RETIRED_SUB_TYPES, InvalidAnswerError, calculate_severity, classify_sub_type
 
 passed = 0
 failed = 0
@@ -25,10 +25,14 @@ def check(label, actual, expected):
 
 # ---- 4.1: classify_sub_type cho cả 5 nhóm ----
 check("delay/chua_xuat_phat", classify_sub_type("delay", "chua_xuat_phat")["sub_type"], "late_departure")
-check("delay/dang_boc_do_cham", classify_sub_type("delay", "dang_boc_do_cham")["sub_type"], "slow_loading")
 check(
-    "delay/dang_di_chuyen_cham_khong_ro_ly_do",
-    classify_sub_type("delay", "dang_di_chuyen_cham_khong_ro_ly_do")["sub_type"],
+    "delay/da_xuat_phat_nhung_tre (cùng ra late_departure)",
+    classify_sub_type("delay", "da_xuat_phat_nhung_tre")["sub_type"],
+    "late_departure",
+)
+check(
+    "delay/mat_lien_lac_tai_xe",
+    classify_sub_type("delay", "mat_lien_lac_tai_xe")["sub_type"],
     "unknown_delay",
 )
 check("road_block/un_tac_van_di_duoc", classify_sub_type("road_block", "un_tac_van_di_duoc")["sub_type"], "traffic_jam")
@@ -43,10 +47,8 @@ check(
     classify_sub_type("customer_reject", "tu_choi_nhan_tranh_chap")["sub_type"],
     "customer_dispute",
 )
-check("customer_reject/sai_dia_chi", classify_sub_type("customer_reject", "sai_dia_chi")["sub_type"], "wrong_address")
 check("customer_change/doi_gio_nhan", classify_sub_type("customer_change", "doi_gio_nhan")["sub_type"], "change_time")
 check("customer_change/doi_dia_diem", classify_sub_type("customer_change", "doi_dia_diem")["sub_type"], "change_location")
-check("customer_change/huy_don", classify_sub_type("customer_change", "huy_don")["sub_type"], "cancel_order")
 check(
     "vehicle_issue/hong_nhe_van_chay_duoc",
     classify_sub_type("vehicle_issue", "hong_nhe_van_chay_duoc")["sub_type"],
@@ -59,21 +61,39 @@ check(
 )
 check("vehicle_issue/tai_nan", classify_sub_type("vehicle_issue", "tai_nan")["sub_type"], "accident")
 
-# Câu hỏi phụ delay: depot_on_time=True -> suggested_sub_type=slow_loading, KHÔNG đổi sub_type
-r = classify_sub_type("delay", "chua_xuat_phat", depot_on_time=True)
-check("delay câu phụ (đến kho đúng giờ) sub_type giữ nguyên", r["sub_type"], "late_departure")
-check("delay câu phụ (đến kho đúng giờ) suggested", r["suggested_sub_type"], "slow_loading")
-r2 = classify_sub_type("delay", "chua_xuat_phat", depot_on_time=False)
-check("delay câu phụ (đến kho trễ) suggested=None", r2["suggested_sub_type"], None)
+# 3 sub_type đã retire 2026-09-08: KHÔNG tạo mới được nữa qua answer_key cũ
+for grp, key in (("delay", "dang_boc_do_cham"), ("customer_reject", "sai_dia_chi"), ("customer_change", "huy_don")):
+    try:
+        classify_sub_type(grp, key)
+        check("answer_key retire " + key + " bị từ chối", "không raise", "InvalidAnswerError")
+    except InvalidAnswerError:
+        check("answer_key retire " + key + " bị từ chối", "InvalidAnswerError", "InvalidAnswerError")
+
+# Câu hỏi phụ customer_absent: liên lạc được + khách nói muốn gì -> GỢI Ý đổi
+# sub_type (không tự đổi). Đây là cơ chế suggested_sub_type cũ của depot_on_time
+# -> slow_loading, nay chuyển sang phục vụ luồng khách vắng mặt.
+r = classify_sub_type("customer_reject", "khong_co_nguoi_nhan", customer_request="hen_giao_lai")
+check("customer_absent + hẹn giao lại: sub_type giữ nguyên", r["sub_type"], "customer_absent")
+check("customer_absent + hẹn giao lại: gợi ý change_time", r["suggested_sub_type"], "change_time")
+r2 = classify_sub_type("customer_reject", "khong_co_nguoi_nhan", customer_request="doi_dia_diem")
+check("customer_absent + đổi địa điểm: gợi ý change_location", r2["suggested_sub_type"], "change_location")
+r3 = classify_sub_type("customer_reject", "khong_co_nguoi_nhan", customer_request="huy")
+check("customer_absent + huỷ đơn: KHÔNG gợi ý sub_type nào", r3["suggested_sub_type"], None)
+r4 = classify_sub_type("customer_reject", "khong_co_nguoi_nhan")
+check("customer_absent không liên lạc được: suggested=None", r4["suggested_sub_type"], None)
 
 # ---- 4.3 + 4.4: severity theo bảng mục 5.2 + 14 sub-type, cả 2 phía ngưỡng ----
-check("late_departure delay=30 (không escalate)", calculate_severity("late_departure", {"departure_delay_min": 30, "downstream_stops_affected": 0}), "warning")
-check("late_departure delay=31 (escalate)", calculate_severity("late_departure", {"departure_delay_min": 31, "downstream_stops_affected": 0}), "serious")
-check("late_departure downstream=3 (escalate)", calculate_severity("late_departure", {"departure_delay_min": 0, "downstream_stops_affected": 3}), "serious")
-check("late_departure downstream=2 (không escalate)", calculate_severity("late_departure", {"departure_delay_min": 0, "downstream_stops_affected": 2}), "warning")
+# late_departure (đã xuất phát) đọc `departure_delay_min` — số THỰC TẾ
+check("late_departure đã xuất phát, thực tế=30 (không escalate)", calculate_severity("late_departure", {"departure_status": "da_xuat_phat", "departure_delay_min": 30, "downstream_stops_affected": 0}), "warning")
+check("late_departure đã xuất phát, thực tế=31 (escalate)", calculate_severity("late_departure", {"departure_status": "da_xuat_phat", "departure_delay_min": 31, "downstream_stops_affected": 0}), "serious")
+check("late_departure downstream=3 (escalate)", calculate_severity("late_departure", {"departure_status": "da_xuat_phat", "departure_delay_min": 0, "downstream_stops_affected": 3}), "serious")
+check("late_departure downstream=2 (không escalate)", calculate_severity("late_departure", {"departure_status": "da_xuat_phat", "departure_delay_min": 0, "downstream_stops_affected": 2}), "warning")
 
-check("slow_loading downstream=2", calculate_severity("slow_loading", {"downstream_stops_affected": 2}), "warning")
-check("slow_loading downstream=3", calculate_severity("slow_loading", {"downstream_stops_affected": 3}), "serious")
+# late_departure (chưa xuất phát) đọc `estimated_departure_delay_min` — số ƯỚC TÍNH
+check("late_departure chưa xuất phát, ước tính=30 (không escalate)", calculate_severity("late_departure", {"departure_status": "chua_xuat_phat", "estimated_departure_delay_min": 30, "downstream_stops_affected": 0}), "warning")
+check("late_departure chưa xuất phát, ước tính=31 (escalate)", calculate_severity("late_departure", {"departure_status": "chua_xuat_phat", "estimated_departure_delay_min": 31, "downstream_stops_affected": 0}), "serious")
+# Không lẫn 2 con số: chưa xuất phát mà chỉ có số thực tế thì coi như chưa có số
+check("late_departure chưa xuất phát KHÔNG đọc nhầm departure_delay_min", calculate_severity("late_departure", {"departure_status": "chua_xuat_phat", "departure_delay_min": 99, "downstream_stops_affected": 0}), "warning")
 
 check("unknown_delay contact_lost=15 (không escalate)", calculate_severity("unknown_delay", {"driver_contact_lost_min": 15}), "warning")
 check("unknown_delay contact_lost=16 (escalate)", calculate_severity("unknown_delay", {"driver_contact_lost_min": 16}), "serious")
@@ -89,17 +109,11 @@ check("customer_absent giao lại lần 2 (escalate)", calculate_severity("custo
 
 check("customer_dispute (cố định serious)", calculate_severity("customer_dispute", {}), "serious")
 
-check("wrong_address 5km (không escalate)", calculate_severity("wrong_address", {"new_address_distance_km": 5}), "warning")
-check("wrong_address 5.1km (escalate)", calculate_severity("wrong_address", {"new_address_distance_km": 5.1}), "serious")
-
 check("change_time không xung đột", calculate_severity("change_time", {"has_time_conflict": False}), "warning")
 check("change_time có xung đột (escalate)", calculate_severity("change_time", {"has_time_conflict": True}), "serious")
 
 check("change_location 5km (không escalate)", calculate_severity("change_location", {"new_location_distance_km": 5}), "warning")
 check("change_location 5.1km (escalate)", calculate_severity("change_location", {"new_location_distance_km": 5.1}), "serious")
-
-check("cancel_order thường", calculate_severity("cancel_order", {}), "warning")
-check("cancel_order has_priority_order (escalate)", calculate_severity("cancel_order", {"has_priority_order": True}), "serious")
 
 check("minor_breakdown repair=30 (không escalate)", calculate_severity("minor_breakdown", {"estimated_repair_min": 30}), "warning")
 check("minor_breakdown repair=31 (escalate)", calculate_severity("minor_breakdown", {"estimated_repair_min": 31}), "serious")
@@ -108,6 +122,15 @@ check("major_breakdown (cố định serious)", calculate_severity("major_breakd
 
 check("accident không thương (vẫn critical, cố định)", calculate_severity("accident", {"has_injury": False}), "critical")
 check("accident có thương (critical)", calculate_severity("accident", {"has_injury": True}), "critical")
+
+# sub_type đã retire: severity không tính được nữa, và báo lỗi phải nói rõ lý do
+# (ngoại lệ cũ chỉ để XEM) chứ không phải "sub_type không hợp lệ" chung chung
+for retired in RETIRED_SUB_TYPES:
+    try:
+        calculate_severity(retired, {})
+        check("calculate_severity " + retired + " phải raise", "không raise", "InvalidAnswerError")
+    except InvalidAnswerError as exc:
+        check("calculate_severity " + retired + " raise kèm lý do retire", "ngừng dùng" in str(exc), True)
 
 # ---- 4.4: 4 quy tắc ghi đè toàn cục, test riêng lẻ ----
 check("Quy tắc #1: has_injury -> critical bất kể sub_type", calculate_severity("late_departure", {"has_injury": True, "departure_delay_min": 0, "downstream_stops_affected": 0}), "critical")

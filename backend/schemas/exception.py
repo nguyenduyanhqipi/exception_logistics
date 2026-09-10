@@ -9,7 +9,6 @@ class ExceptionCreate(BaseModel):
     schedule_id: UUID
     exception_group: str
     answer_key: str
-    depot_on_time: Optional[bool] = None
     has_injury: Optional[bool] = None
     area: Optional[str] = None
     description: Optional[str] = None
@@ -24,14 +23,41 @@ class ExceptionCreate(BaseModel):
 
     # Các tín hiệu định lượng riêng theo sub_type (mục 5.2) — dispatcher chỉ
     # điền field liên quan đến sub_type đã chọn, các field khác bỏ qua.
+    # `departure_delay_min` từ 2026-09-08 CHỈ còn dùng cho trạng thái "đã xuất
+    # phát" (số THỰC TẾ); trường hợp chưa xuất phát dùng
+    # `estimated_departure_delay_min` bên dưới.
     departure_delay_min: Optional[int] = None
     driver_contact_lost_min: Optional[int] = None
     estimated_traffic_duration_min: Optional[int] = None
     is_repeat_delivery: Optional[bool] = None
-    new_address_distance_km: Optional[float] = None
     has_time_conflict: Optional[bool] = None
     new_location_distance_km: Optional[float] = None
     estimated_repair_min: Optional[int] = None
+
+    # --- Câu trả lời phụ, redesign 2026-09-08 (exception_intake_review.md) ---
+    # Mỗi field chỉ có nghĩa với đúng 1-2 sub_type; dispatcher bỏ trống phần
+    # còn lại. Tất cả đều Optional vì form chỉ hiện đúng câu hỏi của sub_type
+    # đang chọn — bắt buộc ở đây sẽ chặn luôn 10 sub_type còn lại.
+    #
+    # delay:
+    departure_status: Optional[str] = None          # chua_xuat_phat | da_xuat_phat
+    late_departure_cause: Optional[str] = None      # chỉ khi chua_xuat_phat
+    estimated_departure_delay_min: Optional[int] = None  # ƯỚC TÍNH, chưa xảy ra xong
+    departed_late_cause: Optional[str] = None       # chỉ khi da_xuat_phat, tuỳ chọn
+    # customer_reject:
+    contacted_customer: Optional[bool] = None       # customer_absent
+    customer_request: Optional[str] = None          # hen_giao_lai | doi_dia_diem | huy
+    dispute_type: Optional[str] = None              # customer_dispute
+    # vehicle_issue:
+    can_transfer_cargo_safely: Optional[str] = None  # co | khong | chua_chac (major_breakdown)
+    vehicle_movable: Optional[bool] = None          # accident
+    # Vị trí xe hiện tại — dùng chung road_closed + major_breakdown, nuôi tính
+    # năng bản đồ/định tuyến (map_routing_feature.md). Toạ độ tách riêng khỏi
+    # `area` (chuỗi khu vực tự do đã có sẵn) vì `area` không định vị được trên
+    # bản đồ, còn toạ độ thì không thay được cho tên khu vực khi hiển thị.
+    current_lat: Optional[float] = None
+    current_lng: Optional[float] = None
+    current_address: Optional[str] = None
 
     # Mục F — khách chủ động chấp nhận trễ tối đa bao nhiêu phút so với SLA
     # gốc (hỏi 2 bước, optional). CHỈ dùng ở ranker.py, KHÔNG ảnh hưởng
@@ -51,7 +77,6 @@ class ExceptionUpdate(BaseModel):
 
     exception_group: str
     answer_key: str
-    depot_on_time: Optional[bool] = None
     has_injury: Optional[bool] = None
     area: Optional[str] = None
     description: Optional[str] = None
@@ -64,10 +89,34 @@ class ExceptionUpdate(BaseModel):
     driver_contact_lost_min: Optional[int] = None
     estimated_traffic_duration_min: Optional[int] = None
     is_repeat_delivery: Optional[bool] = None
-    new_address_distance_km: Optional[float] = None
     has_time_conflict: Optional[bool] = None
     new_location_distance_km: Optional[float] = None
     estimated_repair_min: Optional[int] = None
+
+    # --- Câu trả lời phụ, redesign 2026-09-08 (exception_intake_review.md) ---
+    # Mỗi field chỉ có nghĩa với đúng 1-2 sub_type; dispatcher bỏ trống phần
+    # còn lại. Tất cả đều Optional vì form chỉ hiện đúng câu hỏi của sub_type
+    # đang chọn — bắt buộc ở đây sẽ chặn luôn 10 sub_type còn lại.
+    #
+    # delay:
+    departure_status: Optional[str] = None          # chua_xuat_phat | da_xuat_phat
+    late_departure_cause: Optional[str] = None      # chỉ khi chua_xuat_phat
+    estimated_departure_delay_min: Optional[int] = None  # ƯỚC TÍNH, chưa xảy ra xong
+    departed_late_cause: Optional[str] = None       # chỉ khi da_xuat_phat, tuỳ chọn
+    # customer_reject:
+    contacted_customer: Optional[bool] = None       # customer_absent
+    customer_request: Optional[str] = None          # hen_giao_lai | doi_dia_diem | huy
+    dispute_type: Optional[str] = None              # customer_dispute
+    # vehicle_issue:
+    can_transfer_cargo_safely: Optional[str] = None  # co | khong | chua_chac (major_breakdown)
+    vehicle_movable: Optional[bool] = None          # accident
+    # Vị trí xe hiện tại — dùng chung road_closed + major_breakdown, nuôi tính
+    # năng bản đồ/định tuyến (map_routing_feature.md). Toạ độ tách riêng khỏi
+    # `area` (chuỗi khu vực tự do đã có sẵn) vì `area` không định vị được trên
+    # bản đồ, còn toạ độ thì không thay được cho tên khu vực khi hiển thị.
+    current_lat: Optional[float] = None
+    current_lng: Optional[float] = None
+    current_address: Optional[str] = None
 
     customer_accepted_delay_min: Optional[int] = None
 

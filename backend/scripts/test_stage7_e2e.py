@@ -69,7 +69,7 @@ SINGLE_SCENARIOS = [
         area="Thanh Xuan", now_hm=(9, 45), from_stop_order=2, delay_minutes=0,
     ),
     dict(
-        name="KB4 cancel_order (serious)", vehicle_id="B04", sub_type="cancel_order", exception_group="customer_change",
+        name="KB4 customer_absent (serious)", vehicle_id="B04", sub_type="customer_absent", exception_group="customer_reject",
         stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "10 Hang Bai, Hoan Kiem", "area": "Hoan Kiem", "order_id": "DH-401", "eta": "13:50", "sla_deadline": "15:30", "priority_tier": "hop_dong_phat", "sla_penalty": 600000},
         ],

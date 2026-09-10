@@ -1,6 +1,6 @@
 """Chạy + in output Gemini THẬT cho 4 kịch bản còn lại của bước 6.8 (mục 15):
 Kịch bản 2 (road_closed, critical), 3 (customer_absent, warning), 4
-(cancel_order, serious), 5 (major_breakdown, serious). Đọc bằng mắt sau khi
+(customer_absent, serious), 5 (major_breakdown, serious). Đọc bằng mắt sau khi
 chạy — không assert tự động về giọng văn (không thể tự động hoá phần đó).
 """
 import json
@@ -51,12 +51,12 @@ SCENARIOS = [
         now_hm=(9, 45), from_stop_order=2, delay_minutes=0,
     ),
     dict(
-        name="Kịch bản 4 — customer_change/cancel_order (kỳ vọng: serious)",
+        name="Kịch bản 4 — customer_reject/customer_absent (kỳ vọng: serious)",
         vehicle_id="B04", stops=[
             {"stop_id": "s1", "stop_order": 1, "stop_type": "giao_hang", "address": "10 Hang Bai, Hoan Kiem", "area": "Hoan Kiem", "order_id": "DH-401", "eta": "13:50", "sla_deadline": "15:30", "priority_tier": "hop_dong_phat", "sla_penalty": 600000, "volume_kg": 8, "cargo_type": "normal"},
         ],
-        exception_group="customer_change", sub_type="cancel_order",
-        description="Khách gọi báo hủy đơn khi xe còn cách điểm giao khoảng 15 phút. Giá trị hàng 2.500.000đ (hàng thời trang, khách có hợp đồng phân phối với công ty).",
+        exception_group="customer_reject", sub_type="customer_absent",
+        description="Xe tới nơi nhưng không có ai nhận hàng, gọi khách không bắt máy. Giá trị hàng 2.500.000đ (hàng thời trang, khách có hợp đồng phân phối với công ty).",
         area="Hoan Kiem",
         now_hm=(13, 55), from_stop_order=1, delay_minutes=0,
     ),

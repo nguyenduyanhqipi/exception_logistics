@@ -38,7 +38,6 @@ _SIGNAL_FIELDS = (
     # nhất cho mọi ô đã nhập, và để ngoại lệ CŨ (description còn dính note do
     # rule engine sinh) nạp lại được đúng phần người dùng viết.
     "description",
-    "depot_on_time",
     "has_injury",
     "from_stop_order",
     "to_stop_order",
@@ -47,10 +46,25 @@ _SIGNAL_FIELDS = (
     "driver_contact_lost_min",
     "estimated_traffic_duration_min",
     "is_repeat_delivery",
-    "new_address_distance_km",
     "has_time_conflict",
     "new_location_distance_km",
     "estimated_repair_min",
+    # Câu trả lời phụ thêm ở redesign 2026-09-08 (exception_intake_review.md).
+    # `depot_on_time`/`new_address_distance_km` đã bỏ cùng lúc `slow_loading`/
+    # `wrong_address` retire — input_context của ngoại lệ CŨ vẫn còn 2 key đó,
+    # chỉ là từ nay không ghi thêm nữa.
+    "departure_status",
+    "late_departure_cause",
+    "estimated_departure_delay_min",
+    "departed_late_cause",
+    "contacted_customer",
+    "customer_request",
+    "dispute_type",
+    "can_transfer_cargo_safely",
+    "vehicle_movable",
+    "current_lat",
+    "current_lng",
+    "current_address",
 )
 
 
@@ -119,7 +133,7 @@ def create_exception(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy chuyến")
 
     try:
-        classification = classify_sub_type(payload.exception_group, payload.answer_key, payload.depot_on_time)
+        classification = classify_sub_type(payload.exception_group, payload.answer_key, payload.customer_request)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -144,11 +158,15 @@ def create_exception(
         "driver_contact_lost_min": payload.driver_contact_lost_min,
         "estimated_traffic_duration_min": payload.estimated_traffic_duration_min,
         "is_repeat_delivery": payload.is_repeat_delivery,
-        "new_address_distance_km": payload.new_address_distance_km,
         "has_time_conflict": payload.has_time_conflict,
         "new_location_distance_km": payload.new_location_distance_km,
         "estimated_repair_min": payload.estimated_repair_min,
         "has_injury": payload.has_injury,
+        # `late_departure` gộp 2 trạng thái từ 2026-09-08 nên rule engine phải
+        # biết trạng thái nào để đọc đúng con số phút (ước tính vs thực tế) —
+        # xem rule_engine._base_and_escalation.
+        "departure_status": payload.departure_status,
+        "estimated_departure_delay_min": payload.estimated_departure_delay_min,
         **impact,
     }
     severity = calculate_severity(sub_type, rule_context)
@@ -522,7 +540,7 @@ def update_exception(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy chuyến của ngoại lệ này")
 
     try:
-        classification = classify_sub_type(payload.exception_group, payload.answer_key, payload.depot_on_time)
+        classification = classify_sub_type(payload.exception_group, payload.answer_key, payload.customer_request)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -542,11 +560,15 @@ def update_exception(
         "driver_contact_lost_min": payload.driver_contact_lost_min,
         "estimated_traffic_duration_min": payload.estimated_traffic_duration_min,
         "is_repeat_delivery": payload.is_repeat_delivery,
-        "new_address_distance_km": payload.new_address_distance_km,
         "has_time_conflict": payload.has_time_conflict,
         "new_location_distance_km": payload.new_location_distance_km,
         "estimated_repair_min": payload.estimated_repair_min,
         "has_injury": payload.has_injury,
+        # `late_departure` gộp 2 trạng thái từ 2026-09-08 nên rule engine phải
+        # biết trạng thái nào để đọc đúng con số phút (ước tính vs thực tế) —
+        # xem rule_engine._base_and_escalation.
+        "departure_status": payload.departure_status,
+        "estimated_departure_delay_min": payload.estimated_departure_delay_min,
         **impact,
     }
     severity_before = exc.severity

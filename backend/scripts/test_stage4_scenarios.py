@@ -71,11 +71,11 @@ check("KB3 time_to_deadline_min=135", impact3["time_to_deadline_min"], 135)
 check("KB3 severity=warning (không báo động giả)", sev3, "warning")
 
 # ============================================================
-# Kịch bản 4 — customer_change/cancel_order, B04, leo thang serious (giá trị đơn cao)
+# Kịch bản 4 — customer_reject/customer_absent, B04, leo thang serious (giá trị đơn cao)
 # ============================================================
 stops4 = [{"stop_order": 1, "eta": "13:50", "sla_deadline": "15:30", "priority_tier": "hop_dong_phat", "sla_penalty": 600_000}]
 impact4 = analyze_impact(stops4, delay_minutes=0, from_stop_order=1, to_stop_order=1, shift_date=DAY, now=datetime(2026, 9, 1, 13, 55))
-sev4 = calculate_severity("cancel_order", {"has_priority_order": impact4["has_priority_order"], **impact4})
+sev4 = calculate_severity("customer_absent", {"has_priority_order": impact4["has_priority_order"], **impact4})
 check("KB4 has_priority_order=True (hop_dong_phat + sla_penalty 600k>500k)", impact4["has_priority_order"], True)
 check("KB4 time_to_deadline_min=95", impact4["time_to_deadline_min"], 95)
 check("KB4 severity=serious", sev4, "serious")

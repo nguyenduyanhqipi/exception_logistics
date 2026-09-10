@@ -176,7 +176,7 @@ def seed_schedules(db):
     )
     n += 1
 
-    # KB4 — B04, customer_change/cancel_order: priority_tier=hop_dong_phat,
+    # KB4 — B04, customer_reject/customer_absent: priority_tier=hop_dong_phat,
     # sla_penalty 600k -> has_priority_order=True -> escalate serious.
     _upsert_schedule(
         db, "B04", today, 1,

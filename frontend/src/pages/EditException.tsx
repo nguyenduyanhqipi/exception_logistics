@@ -3,11 +3,15 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import type { ExceptionDetail, Schedule } from "../api/types";
+import { FollowUpFields } from "../components/FollowUpFields";
 import {
   ANSWER_TO_SUBTYPE,
-  EXTRA_FIELD,
+  DEPARTURE_DELAY_KEYS,
+  DERIVED_FIELDS,
+  FOLLOW_UPS,
   GROUP_QUESTIONS,
   SUBTYPE_TO_ANSWER,
+  missingRequiredFollowUp,
   showsCustomerDelayTolerance,
 } from "../exceptionForm";
 
@@ -38,9 +42,7 @@ export function EditException() {
 
   const [group, setGroup] = useState("");
   const [answerKey, setAnswerKey] = useState("");
-  const [depotOnTime, setDepotOnTime] = useState<boolean | null>(null);
-  const [hasInjury, setHasInjury] = useState<boolean | null>(null);
-  const [extraValue, setExtraValue] = useState("");
+  const [followUps, setFollowUps] = useState<Record<string, unknown>>({});
   const [fromStopOrder, setFromStopOrder] = useState<number | "">("");
   const [affectsWholeRoute, setAffectsWholeRoute] = useState(true);
   const [toStopOrder, setToStopOrder] = useState<number | "">("");
@@ -62,16 +64,24 @@ export function EditException() {
     const ctx = (data.input_context ?? {}) as Record<string, unknown>;
     const fallback = SUBTYPE_TO_ANSWER[data.sub_type];
     const g = (ctx.exception_group as string) || data.exception_group || fallback?.group || "";
-    const a = (ctx.answer_key as string) || fallback?.answerKey || "";
+    // answer_key đã lưu có thể là khoá ĐÃ RETIRE (dang_boc_do_cham, sai_dia_chi,
+    // huy_don... — redesign 2026-09-08): giữ nguyên thì form chọn sẵn 1 đáp án
+    // không còn tồn tại và backend sẽ trả 400 lúc lưu. Bỏ qua, để dispatcher
+    // chọn lại theo bộ câu hỏi mới (banner bên dưới đã báo).
+    const storedAnswer = ctx.answer_key as string | undefined;
+    const a = (storedAnswer && ANSWER_TO_SUBTYPE[g]?.[storedAnswer] ? storedAnswer : fallback?.answerKey) || "";
     setGroup(g);
     setAnswerKey(a);
-    setDepotOnTime(typeof ctx.depot_on_time === "boolean" ? ctx.depot_on_time : null);
-    setHasInjury(typeof ctx.has_injury === "boolean" ? ctx.has_injury : null);
 
-    const subType = a && g ? ANSWER_TO_SUBTYPE[g]?.[a] : null;
-    const ef = subType ? EXTRA_FIELD[subType] : null;
-    const rawExtra = ef ? ctx[ef.key] : null;
-    setExtraValue(rawExtra === null || rawExtra === undefined ? "" : String(rawExtra));
+    // Nạp lại đúng những câu hỏi phụ mà answer_key này thực sự hỏi — không đổ
+    // nguyên input_context vào state, vì ngoại lệ cũ còn chứa key của sub_type
+    // đã retire (depot_on_time, new_address_distance_km) và gửi lại chúng chỉ
+    // làm bẩn input_context mới.
+    const prefill: Record<string, unknown> = {};
+    for (const f of FOLLOW_UPS[a] ?? []) {
+      if (ctx[f.key] !== undefined && ctx[f.key] !== null) prefill[f.key] = ctx[f.key];
+    }
+    setFollowUps(prefill);
 
     setFromStopOrder(typeof ctx.from_stop_order === "number" ? ctx.from_stop_order : "");
     const to = ctx.to_stop_order;
@@ -93,18 +103,13 @@ export function EditException() {
   }, [data, loaded]);
 
   const subType = group && answerKey ? ANSWER_TO_SUBTYPE[group]?.[answerKey] : null;
-  const extraField = subType ? EXTRA_FIELD[subType] : null;
-  const showDepotFollowUp = subType === "late_departure" && !!schedule?.planned_departure_time;
-  const showInjuryFollowUp = subType === "accident";
   const showCustomerDelayTolerance = showsCustomerDelayTolerance(group);
   const missingContext = !!data && !data.input_context;
 
   function resetGroupChoice(newGroup: string) {
     setGroup(newGroup);
     setAnswerKey("");
-    setDepotOnTime(null);
-    setHasInjury(null);
-    setExtraValue("");
+    setFollowUps({});
     setCustomerAcceptedDelayAnswer("");
     setCustomerAcceptedDelayMinInput("");
     setAffectsWholeRoute(newGroup !== "customer_reject" && newGroup !== "customer_change");
@@ -125,11 +130,7 @@ export function EditException() {
         area: area || null,
         description: description || null,
       };
-      if (depotOnTime !== null) payload.depot_on_time = depotOnTime;
-      if (hasInjury !== null) payload.has_injury = hasInjury;
-      if (extraField && extraValue !== "") {
-        payload[extraField.key] = extraField.type === "boolean" ? extraValue === "true" : Number(extraValue);
-      }
+      Object.assign(payload, DERIVED_FIELDS[answerKey] ?? {}, followUps);
       if (showCustomerDelayTolerance && customerAcceptedDelayAnswer === "yes" && customerAcceptedDelayMinInput !== "") {
         payload.customer_accepted_delay_min = Number(customerAcceptedDelayMinInput) || 0;
       }
@@ -224,9 +225,7 @@ export function EditException() {
                     checked={answerKey === opt.key}
                     onChange={() => {
                       setAnswerKey(opt.key);
-                      setDepotOnTime(null);
-                      setHasInjury(null);
-                      setExtraValue("");
+                      setFollowUps({});
                     }}
                   />
                   {opt.label}
@@ -236,64 +235,15 @@ export function EditException() {
           </div>
         )}
 
-        {showDepotFollowUp && answerKey === "chua_xuat_phat" && (
-          <div className="form-field">
-            <label>Xe/tài xế có mặt tại kho đúng giờ không?</label>
-            <div className="radio-group">
-              <label className={`radio-option ${depotOnTime === true ? "selected" : ""}`}>
-                <input type="radio" checked={depotOnTime === true} onChange={() => setDepotOnTime(true)} />
-                Có (đến kho đúng giờ nhưng xuất phát trễ)
-              </label>
-              <label className={`radio-option ${depotOnTime === false ? "selected" : ""}`}>
-                <input type="radio" checked={depotOnTime === false} onChange={() => setDepotOnTime(false)} />
-                Không (bản thân đến kho đã trễ)
-              </label>
-            </div>
-          </div>
-        )}
-
-        {showInjuryFollowUp && (
-          <div className="form-field">
-            <label>Có ai bị thương không?</label>
-            <div className="radio-group">
-              <label className={`radio-option ${hasInjury === true ? "selected" : ""}`}>
-                <input type="radio" checked={hasInjury === true} onChange={() => setHasInjury(true)} />
-                Có
-              </label>
-              <label className={`radio-option ${hasInjury === false ? "selected" : ""}`}>
-                <input type="radio" checked={hasInjury === false} onChange={() => setHasInjury(false)} />
-                Không
-              </label>
-            </div>
-          </div>
-        )}
-
-        {extraField && (
-          <div className="form-field">
-            <label>{extraField.label}</label>
-            {extraField.type === "number" ? (
-              <input
-                type="number"
-                min={0}
-                value={extraValue}
-                onChange={(e) => {
-                  setExtraValue(e.target.value);
-                  if (subType === "late_departure") setDelayMinutes(e.target.value);
-                }}
-              />
-            ) : (
-              <div className="radio-group">
-                <label className={`radio-option ${extraValue === "true" ? "selected" : ""}`}>
-                  <input type="radio" checked={extraValue === "true"} onChange={() => setExtraValue("true")} />
-                  Có
-                </label>
-                <label className={`radio-option ${extraValue === "false" ? "selected" : ""}`}>
-                  <input type="radio" checked={extraValue === "false"} onChange={() => setExtraValue("false")} />
-                  Không
-                </label>
-              </div>
-            )}
-          </div>
+        {answerKey && (
+          <FollowUpFields
+            answerKey={answerKey}
+            answers={followUps}
+            onChange={(key, value) => {
+              setFollowUps((prev) => ({ ...prev, [key]: value }));
+              if (DEPARTURE_DELAY_KEYS.includes(key)) setDelayMinutes(value === undefined ? "0" : String(value));
+            }}
+          />
         )}
 
         {schedule && answerKey && (
@@ -409,7 +359,13 @@ export function EditException() {
           <button
             type="submit"
             className="primary"
-            disabled={submitting || !group || !answerKey || fromStopOrder === ""}
+            disabled={
+              submitting ||
+              !group ||
+              !answerKey ||
+              fromStopOrder === "" ||
+              missingRequiredFollowUp(answerKey, followUps)
+            }
           >
             {submitting ? "Đang lưu..." : "Lưu thay đổi"}
           </button>

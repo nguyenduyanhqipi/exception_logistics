@@ -84,6 +84,12 @@ OUTPUT JSON SCHEMA
   ]
 }"""
 
+# LƯU Ý: 3 prompt `slow_loading`/`wrong_address`/`cancel_order` bên dưới thuộc
+# các sub_type đã RETIRE 2026-09-08 (core/rule_engine.py::RETIRED_SUB_TYPES) —
+# KHÔNG tạo mới được nữa. Giữ lại có chủ đích: ngoại lệ CŨ trong DB vẫn mang
+# sub_type đó, và `option_generator._get_active_prompt()` raise nếu không tìm
+# thấy prompt active — xoá đi là ngoại lệ cũ mất luôn khả năng sinh lại phương
+# án (nút "AI thử lại").
 SUB_TYPE_PROMPTS = {
     "late_departure": """SITUATION: A delivery vehicle departed later than scheduled and has not yet reached
 its first stop. Time may still be partially recoverable depending on remaining route
@@ -97,6 +103,20 @@ Consider when generating options:
 - Whether any specific stop is now mathematically unrecoverable and should be
   proactively flagged to the customer with a revised ETA or compensation, rather than
   attempted at the cost of delaying every other stop further.
+
+Structured signals in CONTEXT (trust these over free-text description):
+- departure_status: "chua_xuat_phat" means the vehicle has NOT left the depot yet, so
+  estimated_departure_delay_min is a FORECAST that may still be reduced by acting now
+  (e.g. splitting the load, starting with what is already loaded). "da_xuat_phat"
+  means it is already on the road and departure_delay_min is a MEASURED fact — that
+  delay can no longer be prevented, only absorbed downstream.
+- late_departure_cause (only when not yet departed): thieu_nhan_luc (loading crew
+  short), thieu_hong_thiet_bi (missing/broken equipment), cho_chung_tu (waiting on
+  paperwork), hang_chua_ve_kho (goods not arrived at depot yet), khac. A cause that is
+  outside the depot's control (hang_chua_ve_kho) makes "wait it out" options weaker
+  than a cause the dispatcher can act on directly.
+- departed_late_cause (optional, when already departed): cham_tai_kho,
+  phat_sinh_doc_duong, khong_ro.
 
 Generate 2-3 options for the dispatcher.""",
     "slow_loading": """SITUATION: The vehicle is taking longer than planned to load or unload at a stop,
@@ -145,6 +165,12 @@ Consider when generating options:
   vehicle instead of detouring the whole route.
 - Immediate ETA updates to every customer whose stop is affected by the detour.
 
+Structured signals in CONTEXT (trust these over free-text description):
+- current_address (and current_lat/current_lng when available): where the vehicle is
+  standing right now, which is NOT the same as the origin of the planned route. Any
+  detour you propose must start from this position, not from the depot or the previous
+  stop.
+
 Generate 2-3 options for the dispatcher.""",
     "customer_absent": """SITUATION: No one was available to receive the delivery at the stop.
 
@@ -154,6 +180,15 @@ Consider when generating options:
   stop later the same shift versus rescheduling for the next business day.
 - Returning the goods to the depot if this is a repeat failed attempt, including the
   cost of a repeat delivery run versus any return/restocking cost.
+
+Structured signals in CONTEXT (trust these over free-text description):
+- contacted_customer: whether the driver actually reached the customer. If false, any
+  option that assumes a new agreed time is speculation and must say so.
+- customer_request (only when contacted): hen_giao_lai (wants another time/day),
+  doi_dia_diem (wants a different address), huy (wants to cancel). This is what the
+  customer actually asked for — options that contradict it need an explicit reason.
+- is_repeat_delivery (only when NOT contacted): a second failed attempt costs another
+  full trip, so a third attempt is rarely the cheapest option.
 
 Generate 2-3 options for the dispatcher.""",
     "customer_dispute": """SITUATION: The customer is present but is disputing or refusing to accept the
@@ -168,6 +203,12 @@ Consider when generating options:
 - Documenting the dispute (photos, notes, timestamp) so the escalation has evidence.
 - Do NOT propose pressuring the customer to accept, or any option that keeps the
   driver in a prolonged conflict.
+
+Structured signals in CONTEXT (trust these over free-text description):
+- dispute_type: thieu_hang_sai_so_luong (missing items / wrong quantity), hang_hong_vo
+  (damaged goods), sai_gia_cod (price or COD amount disputed), khac. The type decides
+  who can settle it on the spot: a COD/price dispute is usually resolvable by phone
+  with sales, while damaged goods normally require the shipment to come back.
 
 Generate 2-3 options for the dispatcher.""",
     "wrong_address": """SITUATION: The delivery address provided does not match reality (doesn't exist, wrong
@@ -242,6 +283,15 @@ Consider when generating options:
 - Towing/recovery of the broken-down vehicle is informational context, not a decision
   the dispatcher needs an option for.
 
+Structured signals in CONTEXT (trust these over free-text description):
+- current_address (and current_lat/current_lng when available): where the disabled
+  vehicle is standing — the replacement vehicle has to reach exactly this point.
+- can_transfer_cargo_safely: "co" (yes), "khong" (no), "chua_chac" (not sure), answered
+  by the dispatcher on the spot. When it is "khong", do NOT propose transferring the
+  load where it stands; the vehicle must first be towed somewhere safe, and that time
+  and cost belong in your estimates. "chua_chac" means at least one option should
+  include verifying the spot before committing to a transfer plan.
+
 Generate 2-3 options for the dispatcher.""",
     "accident": """SITUATION: The vehicle has been involved in a traffic accident. CONTEXT includes
 whether anyone is reported injured. Driver and public safety take precedence over
@@ -260,6 +310,15 @@ Consider when generating options:
   resolved/confirmed stable.
 - Never suggest continuing the delivery route before safety is addressed, even if
   CONTEXT reports no injuries.
+
+Structured signals in CONTEXT (trust these over free-text description):
+- has_injury: when true, human safety outranks every SLA consideration — the first
+  option must be the one that gets people cared for fastest, and cargo recovery comes
+  after.
+- vehicle_movable: whether the vehicle can still be driven after the collision. If
+  false, the cargo needs a replacement vehicle and a tow, exactly like
+  major_breakdown; if true, a short self-recovery to a safe spot may be far cheaper
+  than dispatching another vehicle.
 
 Generate 2-3 options for the dispatcher (the first is always the safety option).""",
 }

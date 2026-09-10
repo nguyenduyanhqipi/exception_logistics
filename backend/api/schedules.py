@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from core.excel_parser import ExcelValidationError, parse_schedule_sheet
 from middleware.auth import get_current_user
 from middleware.tenant import get_db
-from models import Exception_, Schedule, Vehicle
+from models import Exception_, ImpactAnalysis, Schedule, Vehicle
 from schemas.schedule import ScheduleCreate, ScheduleCreateBody, ScheduleResponse, StopCreate
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
@@ -128,6 +128,70 @@ def add_or_update_stop(
         stops.append(new_stop)
 
     schedule.stops = sorted(stops, key=lambda s: s["stop_order"])
+    db.commit()
+    db.refresh(schedule)
+    return schedule
+
+
+@router.delete("/{schedule_id}/stops/{stop_id}", response_model=ScheduleResponse)
+def delete_stop(
+    schedule_id: str,
+    stop_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Xoá 1 điểm giao khỏi chuyến đang chạy (redesign 2026-09-08).
+
+    Đây là đường đi thay thế cho sub_type `cancel_order` vừa retire: một đơn ĐÃ
+    BIẾT CHẮC bị huỷ không cần AI sinh phương án — không có gì để cân nhắc,
+    chỉ có đúng 1 việc phải làm là bỏ điểm đó khỏi tuyến. Bắt nó đi qua luồng
+    ngoại lệ chỉ tốn 1 lượt gọi AI và làm bẩn thống kê "ngoại lệ theo loại".
+
+    KHÔNG đánh số lại `stop_order` của các điểm còn lại: `impact_analysis.
+    affected_stops` và `exceptions.input_context.from_stop_order/to_stop_order`
+    đều trỏ theo số thứ tự cũ, đánh lại là làm sai hết dữ liệu ngoại lệ đang mở.
+    Chấp nhận để hổng số (1, 2, 4) — thứ tự tương đối vẫn đúng, mà đó mới là
+    thứ hệ thống dùng.
+    """
+    schedule = db.get(Schedule, schedule_id)
+    if schedule is None or str(schedule.company_id) != current_user["company_id"] or schedule.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy chuyến {schedule_id}")
+
+    stops = list(schedule.stops or [])
+    target = next((s for s in stops if str(s.get("stop_id")) == stop_id), None)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy điểm giao này trong chuyến")
+
+    if len(stops) == 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Đây là điểm giao cuối cùng của chuyến — xoá cả chuyến thay vì xoá điểm giao.",
+        )
+
+    # Chặn HẸP hơn `_assert_not_locked_for_overwrite`: chỉ cấm khi ĐÚNG điểm này
+    # đang nằm trong `affected_stops` của một ngoại lệ chưa giải quyết. Huỷ đơn ở
+    # điểm #3 trong khi điểm #1 đang có ngoại lệ là chuyện bình thường của điều
+    # hành — chặn cả chuyến ở đây sẽ khoá mất đúng thao tác mà thiết kế muốn mở.
+    blocking = db.execute(
+        select(Exception_, ImpactAnalysis)
+        .join(ImpactAnalysis, ImpactAnalysis.exception_id == Exception_.exception_id)
+        .where(
+            Exception_.schedule_id == schedule.schedule_id,
+            Exception_.deleted_at.is_(None),
+            Exception_.status != "resolved",
+        )
+    ).all()
+    for exc, impact in blocking:
+        if any(str(a.get("stop_id")) == stop_id for a in (impact.affected_stops or [])):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Điểm giao {target.get('order_id') or stop_id} đang nằm trong phạm vi ảnh hưởng của "
+                    f"một ngoại lệ chưa xử lý xong ({exc.sub_type}) — xử lý xong ngoại lệ đó rồi hãy xoá điểm giao."
+                ),
+            )
+
+    schedule.stops = [s for s in stops if str(s.get("stop_id")) != stop_id]
     db.commit()
     db.refresh(schedule)
     return schedule
