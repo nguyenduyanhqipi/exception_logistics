@@ -124,11 +124,36 @@ def dashboard_today(
             )
         )
 
-    vehicle_ids = set(schedule_vehicle.values()) | set(exceptions_by_vehicle)
+    # DANH SÁCH XE LẤY TỪ BẢNG `vehicles`, KHÔNG suy ra từ `schedules`
+    # (sửa 2026-09-10): trước đây chỉ liệt kê xe có ít nhất 1 dòng schedule
+    # hoặc 1 ngoại lệ đang mở, nên xe rảnh hôm nay BIẾN MẤT khỏi bảng thay vì
+    # hiện "0 đơn · 0 chuyến" như Quyết định 5 đã chốt (redesign "Xe & Kế
+    # hoạch": xe không có chuyến hôm nay vẫn phải hiện, để không lẫn với lỗi
+    # tải dữ liệu). Bug này bị che suốt vì bản seed dữ liệu lịch sử CŨ nhét
+    # cho mỗi xe vài dòng schedule rỗng — dọn sạch đống đó đi (đợt code 6,
+    # Việc 4) là 5/10 xe demo rơi khỏi Dashboard ngay.
+    #
+    # Chỉ lấy xe `active`: "Xoá xe" thực chất là chuyển sang `inactive`
+    # (api/vehicles.py::delete_vehicle), lấy cả xe inactive thì xoá xe xong
+    # Dashboard vẫn y nguyên. Tenant filter tự lọc `company_id`
+    # (middleware/tenant.py::get_db) nên không cần điều kiện đó ở đây.
     vehicles = {
         v.vehicle_id: v
-        for v in db.execute(select(Vehicle).where(Vehicle.vehicle_id.in_(vehicle_ids))).scalars()
-    } if vehicle_ids else {}
+        for v in db.execute(select(Vehicle).where(Vehicle.status == "active")).scalars()
+    }
+
+    # Xe ĐÃ ngừng hoạt động nhưng còn chuyến/ngoại lệ treo vẫn phải hiện —
+    # ẩn nó đi là giấu luôn việc chưa xong của điều phối viên.
+    referenced_vehicle_ids = set(schedule_vehicle.values()) | set(exceptions_by_vehicle)
+    still_missing = referenced_vehicle_ids - set(vehicles)
+    if still_missing:
+        for v in db.execute(select(Vehicle).where(Vehicle.vehicle_id.in_(still_missing))).scalars():
+            vehicles[v.vehicle_id] = v
+
+    # Hợp cả 2 phía: `referenced_vehicle_ids` có thể chứa mã xe không còn dòng
+    # nào trong `vehicles` (`exceptions.vehicle_id` là Text tự do, không có
+    # khoá ngoại) — vòng lặp bên dưới đã chịu được `vehicle is None`.
+    vehicle_ids = set(vehicles) | referenced_vehicle_ids
 
     schedules_by_vehicle: dict[str, list[Schedule]] = {}
     for s in schedules:
