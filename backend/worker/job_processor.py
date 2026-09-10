@@ -52,7 +52,18 @@ def _persist_manual_fallback_option(db: Session, exception_id=None, group_id=Non
     return [option]
 
 
-def _persist_llm_options(db: Session, raw_options: list[dict], exception_id=None, group_id=None) -> list[Option]:
+def _persist_llm_options(
+    db: Session, raw_options: list[dict], exception_id=None, group_id=None, prompt_version_id=None
+) -> list[Option]:
+    """Lưu các phương án LLM vừa sinh.
+
+    `prompt_version_id` PHẢI được ghi (bổ sung 2026-09-10, Pha 5): cột này có
+    trong bảng `options` từ đầu nhưng chưa nơi nào ghi vào, nên không có cách
+    nào phân biệt phương án AI sinh với phương án dispatcher tự nhập ở tầng dữ
+    liệu — báo cáo "tỷ lệ sinh phương án thành công" (api/reports.py) cần đúng
+    ranh giới đó. Ghi thêm cũng cho biết phương án cũ được sinh bằng phiên bản
+    prompt nào, hữu ích khi so chất lượng giữa các lần sửa prompt.
+    """
     created = []
     for raw in raw_options:
         option = Option(
@@ -63,6 +74,7 @@ def _persist_llm_options(db: Session, raw_options: list[dict], exception_id=None
             time_estimate_minutes=raw.get("time_estimate_minutes"),
             sla_risk_remaining=raw.get("sla_risk_remaining"),
             llm_explanation=raw.get("explanation"),
+            prompt_version_id=prompt_version_id,
             # rationale không có cột riêng trong bảng options (mục 4) -> gộp
             # vào llm_explanation để không mất thông tin LLM đã sinh ra.
         )
@@ -151,7 +163,10 @@ def _process_job(db: Session, job: BackgroundJob):
             except QuotaExceededError as e:
                 options, usage, llm_error = None, {}, str(e)
             if options:
-                created = _persist_llm_options(db, options, exception_id=exc.exception_id)
+                created = _persist_llm_options(
+                    db, options, exception_id=exc.exception_id,
+                    prompt_version_id=usage.get("prompt_version_id"),
+                )
             else:
                 llm_error = llm_error or usage.get("error") or "LLM không sinh được phương án hợp lệ"
                 created = _persist_manual_fallback_option(db, exception_id=exc.exception_id)
@@ -168,7 +183,10 @@ def _process_job(db: Session, job: BackgroundJob):
             except QuotaExceededError as e:
                 options, usage, llm_error = None, {}, str(e)
             if options:
-                created = _persist_llm_options(db, options, group_id=group.group_id)
+                created = _persist_llm_options(
+                    db, options, group_id=group.group_id,
+                    prompt_version_id=usage.get("prompt_version_id"),
+                )
             else:
                 llm_error = llm_error or usage.get("error") or "LLM không sinh được phương án hợp lệ"
                 created = _persist_manual_fallback_option(db, group_id=group.group_id)
