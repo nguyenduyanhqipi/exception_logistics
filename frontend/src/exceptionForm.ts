@@ -182,7 +182,7 @@ export const FOLLOW_UPS: Record<string, FollowUpField[]> = {
       key: "current_address",
       label: "Vị trí xe hiện tại",
       type: "location",
-      hint: "Dùng để tìm tuyến thay thế né đoạn đang bị chặn.",
+      hint: "Dùng để tìm tuyến thay thế né đoạn đang bị chặn. Chỉ cần điền MỘT trong hai: gõ địa chỉ hoặc ghim toạ độ trên bản đồ.",
     },
   ],
 
@@ -242,7 +242,7 @@ export const FOLLOW_UPS: Record<string, FollowUpField[]> = {
       key: "current_address",
       label: "Vị trí xe hiện tại",
       type: "location",
-      hint: "Dùng để tìm xe thay thế gần nhất.",
+      hint: "Dùng để tìm xe thay thế gần nhất. Chỉ cần điền MỘT trong hai: gõ địa chỉ hoặc ghim toạ độ trên bản đồ.",
     },
     {
       key: "can_transfer_cargo_safely",
@@ -276,9 +276,19 @@ export function visibleFollowUps(answerKey: string, answers: Record<string, unkn
 
 /** Còn câu hỏi phụ BẮT BUỘC nào chưa trả lời không (dùng để khoá nút submit). */
 export function missingRequiredFollowUp(answerKey: string, answers: Record<string, unknown>): boolean {
-  return visibleFollowUps(answerKey, answers).some(
-    (f) => !f.optional && (answers[f.key] === undefined || answers[f.key] === null || answers[f.key] === ""),
-  );
+  return visibleFollowUps(answerKey, answers).some((f) => {
+    if (f.optional) return false;
+    // Field "location" (LocationPicker.tsx) ghi 2 kiểu độc lập: gõ địa chỉ chữ
+    // HOẶC ghim toạ độ trên bản đồ — coi là đã trả lời nếu có MỘT trong hai,
+    // không bắt phải có cả 2. Thiếu điều kiện này thì ghim bản đồ xong nút
+    // submit vẫn khoá, người dùng tưởng nhầm là bug (đã gặp thật, 2026-09-12).
+    if (f.type === "location") {
+      const hasAddress = typeof answers[f.key] === "string" && answers[f.key] !== "";
+      const hasCoords = typeof answers.current_lat === "number" && typeof answers.current_lng === "number";
+      return !hasAddress && !hasCoords;
+    }
+    return answers[f.key] === undefined || answers[f.key] === null || answers[f.key] === "";
+  });
 }
 
 // Chỉ nhóm ngoại lệ có khả năng gây TRỄ mới cần hỏi khách có chấp nhận trễ
