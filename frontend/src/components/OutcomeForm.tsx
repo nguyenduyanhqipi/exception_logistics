@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
@@ -124,6 +124,34 @@ export function OutcomeForm({
   const [actualCostDigits, setActualCostDigits] = useState(
     existing?.actual_cost != null ? String(Math.round(existing.actual_cost)) : "",
   );
+  const costInputRef = useRef<HTMLInputElement | null>(null);
+  // Ghi lại "đã gõ xong bao nhiêu CHỮ SỐ trước con trỏ" ngay lúc onChange (tính
+  // trên giá trị thô, trước khi định dạng lại) — không ghi vị trí KÝ TỰ vì dấu
+  // chấm ngăn cách chèn thêm vào chuỗi hiển thị sẽ làm lệch vị trí đó.
+  const pendingCostCursorDigits = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (pendingCostCursorDigits.current === null) return;
+    const el = costInputRef.current;
+    if (el) {
+      const formatted = groupThousands(actualCostDigits);
+      let pos = 0;
+      let digitsSeen = 0;
+      while (pos < formatted.length && digitsSeen < pendingCostCursorDigits.current) {
+        if (formatted[pos] !== ".") digitsSeen++;
+        pos++;
+      }
+      el.setSelectionRange(pos, pos);
+    }
+    pendingCostCursorDigits.current = null;
+  }, [actualCostDigits]);
+
+  function handleCostChange(e: ChangeEvent<HTMLInputElement>) {
+    const input = e.target;
+    const cursor = input.selectionStart ?? input.value.length;
+    pendingCostCursorDigits.current = onlyDigits(input.value.slice(0, cursor)).length;
+    setActualCostDigits(onlyDigits(input.value));
+  }
   const [notes, setNotes] = useState(existing?.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -271,10 +299,11 @@ export function OutcomeForm({
           Chi phí thực tế (VNĐ) <span className="required-mark">*</span>
         </label>
         <input
+          ref={costInputRef}
           inputMode="numeric"
           value={groupThousands(actualCostDigits)}
           placeholder="VD: 180.000"
-          onChange={(e) => setActualCostDigits(onlyDigits(e.target.value))}
+          onChange={handleCostChange}
         />
         <span className="hint">
           {rejection

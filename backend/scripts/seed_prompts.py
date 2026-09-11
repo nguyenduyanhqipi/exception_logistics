@@ -307,6 +307,16 @@ Consider when generating options:
 - Towing/recovery of the broken-down vehicle is informational context, not a decision
   the dispatcher needs an option for.
 
+IMPORTANT: a replacement vehicle IS the right answer here — but CONTEXT does NOT
+include the position, availability, cost or ETA of any other vehicle in the fleet (no
+real-time GPS fleet tracking exists yet — a planned future capability, not available
+today). Refer to it only as "a replacement vehicle" / "the nearest available vehicle"
+as something the dispatcher assigns: do NOT name a specific vehicle or driver, and do
+NOT invent where it currently is, how soon it can arrive, or what it costs to send.
+Base your time_estimate_minutes and cost_estimate on the work described in the option
+(transfer at roadside, return to depot, redispatch) and say plainly in "rationale"
+that the dispatcher must confirm which vehicle is actually free.
+
 Structured signals in CONTEXT (trust these over free-text description):
 - current_address (and current_lat/current_lng when available): where the disabled
   vehicle is standing — the replacement vehicle has to reach exactly this point.
@@ -338,11 +348,21 @@ Consider when generating options:
 Structured signals in CONTEXT (trust these over free-text description):
 - has_injury: when true, human safety outranks every SLA consideration — the first
   option must be the one that gets people cared for fastest, and cargo recovery comes
-  after.
-- vehicle_movable: whether the vehicle can still be driven after the collision. If
-  false, the cargo needs a replacement vehicle and a tow, exactly like
-  major_breakdown; if true, a short self-recovery to a safe spot may be far cheaper
-  than dispatching another vehicle.
+  after. CRITICAL: CONTEXT does not currently distinguish WHO is injured (the driver
+  vs. someone else). Because the driver may be the injured person, has_injury=true
+  means you CANNOT assume the current driver is able to continue driving — never
+  propose an option where this vehicle/driver continues the delivery route while
+  has_injury is true, no matter what vehicle_movable says. Every option beyond the
+  safety action must assume a replacement driver/vehicle is needed (or the remaining
+  stops are handed to another vehicle/rescheduled), exactly like major_breakdown,
+  until a human dispatcher separately confirms the driver is unharmed and fit to
+  drive.
+- vehicle_movable: whether the vehicle ITSELF can still be driven after the collision
+  (mechanical/physical state only — it says nothing about whether the driver can
+  operate it). If has_injury is false AND vehicle_movable is true, a short
+  self-recovery to a safe spot may be far cheaper than dispatching another vehicle.
+  If vehicle_movable is false (regardless of has_injury), the cargo needs a
+  replacement vehicle and a tow, exactly like major_breakdown.
 
 Generate 2-3 options for the dispatcher (the first is always the safety option).""",
 }

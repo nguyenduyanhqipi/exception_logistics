@@ -135,6 +135,16 @@ export function ManagerDashboard() {
     setApplied({ type, anchorA, anchorB: compareOn ? anchorB : null, withBuckets });
   }
 
+  // Bấm 2 nút "So sánh"/"Xem chi tiết theo..." áp dụng NGAY, không đợi "Xem báo
+  // cáo" — khác `apply()` (dùng cho việc đổi kỳ/ngày, cố tình phải bấm thủ công
+  // để tránh bắn API liên tục lúc đang chọn), 2 công tắc này chỉ có đúng 1 cú
+  // bấm nên áp dụng ngay không có rủi ro request thừa.
+  function applyToggle(overrides: Partial<{ compareOn: boolean; withBuckets: boolean }>) {
+    const nextCompareOn = overrides.compareOn ?? compareOn;
+    const nextWithBuckets = overrides.withBuckets ?? withBuckets;
+    setApplied({ type, anchorA, anchorB: nextCompareOn ? anchorB : null, withBuckets: nextWithBuckets });
+  }
+
   const data = summary.data;
   const a = data?.kpi;
   const b = data?.compare?.kpi;
@@ -171,11 +181,27 @@ export function ManagerDashboard() {
           <button type="button" className="primary" onClick={apply}>
             Xem báo cáo
           </button>
-          <button type="button" className="secondary" onClick={() => setCompareOn((v) => !v)}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              const next = !compareOn;
+              setCompareOn(next);
+              applyToggle({ compareOn: next });
+            }}
+          >
             {compareOn ? "Tắt so sánh" : "So sánh với kỳ khác"}
           </button>
           {subLabel && (
-            <button type="button" className="secondary" onClick={() => setWithBuckets((v) => !v)}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                const next = !withBuckets;
+                setWithBuckets(next);
+                applyToggle({ withBuckets: next });
+              }}
+            >
               {withBuckets ? `Ẩn chi tiết theo ${subLabel}` : `Xem chi tiết theo ${subLabel}`}
             </button>
           )}
@@ -244,6 +270,24 @@ export function ManagerDashboard() {
           <BarChart
             categories={["Tổng ngoại lệ", "Đã có kết quả"]}
             series={comparePair(data, [a.total_exceptions, a.outcome_count], [b.total_exceptions, b.outcome_count])}
+            format={(v) => String(Math.round(v))}
+          />
+          {/* Cột CHỒNG (không phải cột đôi như các biểu đồ so sánh khác ở đây):
+              mỗi kỳ là 1 cột, chia màu theo 5 nhóm — nhờ vậy tổng chiều cao cột
+              đọc thẳng ra "Tổng ngoại lệ" của kỳ đó, vừa so được tổng vừa so
+              được cơ cấu từng nhóm trong cùng một hình. */}
+          <h3>Số ngoại lệ theo loại</h3>
+          <BarChart
+            categories={[data.period.label, data.compare!.period.label]}
+            stacked
+            series={Object.keys(GROUP_COLORS).map((g) => ({
+              label: exceptionGroupLabel(g),
+              color: GROUP_COLORS[g],
+              values: [
+                data.by_group.find((x) => x.group === g)?.count ?? 0,
+                data.compare!.by_group.find((x) => x.group === g)?.count ?? 0,
+              ],
+            }))}
             format={(v) => String(Math.round(v))}
           />
           <h3>Chi phí thực tế</h3>
