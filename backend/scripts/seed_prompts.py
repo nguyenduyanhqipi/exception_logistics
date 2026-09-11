@@ -331,32 +331,40 @@ Generate 2-3 options for the dispatcher.""",
 whether anyone is reported injured. Driver and public safety take precedence over
 every logistics consideration.
 
+Every option you generate must be a COMPLETE, standalone plan the dispatcher can pick
+and execute end-to-end — never split the mandatory safety step out as its own
+separate option. A dispatcher always has to call emergency services and secure the
+scene no matter which plan they pick, so listing "call 115/113" as a competing,
+independently-selectable option next to 2 other plans is misleading: it is not a real
+alternative, it is a shared first step every real option already includes.
+
 Consider when generating options:
-- The first option must be the immediate safety/emergency response action (call
-  emergency services 115/113, do not move injured parties, secure the scene). Its
-  cost_estimate and time_estimate_minutes should reflect only that immediate action's
-  real cost and duration — often at or near zero, but state the true estimate rather
-  than defaulting to 0 when the action genuinely has a cost. This option has no
-  trade-off, it is not optional.
-- Only after the safety action, generate 1-2 further options for handling the goods
-  and remaining route (dispatch replacement vehicle, return goods to depot) — clearly
-  state in "description" that these follow only once the safety situation is
-  resolved/confirmed stable.
+- EVERY option's description must OPEN with the same mandatory safety action (call
+  emergency services 115/113, do not move injured parties, secure the scene), then
+  continue with a DIFFERENT way of handling the goods and remaining route once the
+  scene is stable (e.g. one option returns the goods to the depot and reschedules
+  with the customer; another dispatches a replacement vehicle/driver to transfer the
+  cargo and continue the route). The options must differ in what happens AFTER safety
+  is handled, not in whether safety is handled.
+- cost_estimate and time_estimate_minutes for each option must be the TOTAL for that
+  whole plan (the safety response plus the cargo action that follows it), not just the
+  cargo portion — a dispatcher comparing options needs the real end-to-end cost/time
+  of each complete path, not a number that silently omits the mandatory first step.
 - Never suggest continuing the delivery route before safety is addressed, even if
   CONTEXT reports no injuries.
 
 Structured signals in CONTEXT (trust these over free-text description):
-- has_injury: when true, human safety outranks every SLA consideration — the first
-  option must be the one that gets people cared for fastest, and cargo recovery comes
-  after. CRITICAL: CONTEXT does not currently distinguish WHO is injured (the driver
-  vs. someone else). Because the driver may be the injured person, has_injury=true
-  means you CANNOT assume the current driver is able to continue driving — never
-  propose an option where this vehicle/driver continues the delivery route while
-  has_injury is true, no matter what vehicle_movable says. Every option beyond the
-  safety action must assume a replacement driver/vehicle is needed (or the remaining
-  stops are handed to another vehicle/rescheduled), exactly like major_breakdown,
-  until a human dispatcher separately confirms the driver is unharmed and fit to
-  drive.
+- has_injury: when true, human safety outranks every SLA consideration — every
+  option's safety step must be the one that gets people cared for fastest, and cargo
+  recovery comes after. CRITICAL: CONTEXT does not currently distinguish WHO is
+  injured (the driver vs. someone else). Because the driver may be the injured
+  person, has_injury=true means you CANNOT assume the current driver is able to
+  continue driving — never propose an option where this vehicle/driver continues the
+  delivery route while has_injury is true, no matter what vehicle_movable says. Every
+  option's cargo-handling step must assume a replacement driver/vehicle is needed (or
+  the remaining stops are handed to another vehicle/rescheduled), exactly like
+  major_breakdown, until a human dispatcher separately confirms the driver is
+  unharmed and fit to drive.
 - vehicle_movable: whether the vehicle ITSELF can still be driven after the collision
   (mechanical/physical state only — it says nothing about whether the driver can
   operate it). If has_injury is false AND vehicle_movable is true, a short
@@ -364,7 +372,8 @@ Structured signals in CONTEXT (trust these over free-text description):
   If vehicle_movable is false (regardless of has_injury), the cargo needs a
   replacement vehicle and a tow, exactly like major_breakdown.
 
-Generate 2-3 options for the dispatcher (the first is always the safety option).""",
+Generate 2-3 options for the dispatcher — each a complete plan as described above, not
+a bare safety-only step.""",
 }
 
 GROUP_PROMPT = """SITUATION: Two or more operational exceptions were reported at nearly the same time
