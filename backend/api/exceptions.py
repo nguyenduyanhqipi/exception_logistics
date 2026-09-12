@@ -40,7 +40,8 @@ _SIGNAL_FIELDS = (
     # nhất cho mọi ô đã nhập, và để ngoại lệ CŨ (description còn dính note do
     # rule engine sinh) nạp lại được đúng phần người dùng viết.
     "description",
-    "has_injury",
+    "driver_injured",
+    "other_injured",
     "from_stop_order",
     "to_stop_order",
     "delay_minutes",
@@ -163,7 +164,9 @@ def create_exception(
         "has_time_conflict": payload.has_time_conflict,
         "new_location_distance_km": payload.new_location_distance_km,
         "estimated_repair_min": payload.estimated_repair_min,
-        "has_injury": payload.has_injury,
+        # rule_engine vẫn đọc `has_injury` (quy tắc toàn cục #1) — suy ra từ 2
+        # field mới, giữ nguyên ý nghĩa "có người bị thương" cho engine.
+        "has_injury": bool(payload.driver_injured) or bool(payload.other_injured),
         # `late_departure` gộp 2 trạng thái từ 2026-09-08 nên rule engine phải
         # biết trạng thái nào để đọc đúng con số phút (ước tính vs thực tế) —
         # xem rule_engine._base_and_escalation.
@@ -663,7 +666,9 @@ def update_exception(
         "has_time_conflict": payload.has_time_conflict,
         "new_location_distance_km": payload.new_location_distance_km,
         "estimated_repair_min": payload.estimated_repair_min,
-        "has_injury": payload.has_injury,
+        # rule_engine vẫn đọc `has_injury` (quy tắc toàn cục #1) — suy ra từ 2
+        # field mới, giữ nguyên ý nghĩa "có người bị thương" cho engine.
+        "has_injury": bool(payload.driver_injured) or bool(payload.other_injured),
         # `late_departure` gộp 2 trạng thái từ 2026-09-08 nên rule engine phải
         # biết trạng thái nào để đọc đúng con số phút (ước tính vs thực tế) —
         # xem rule_engine._base_and_escalation.

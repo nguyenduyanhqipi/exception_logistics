@@ -256,7 +256,12 @@ export const FOLLOW_UPS: Record<string, FollowUpField[]> = {
     },
   ],
   tai_nan: [
-    { key: "has_injury", label: "Có ai bị thương không?", type: "boolean" },
+    { key: "driver_injured", label: "Tài xế có bị thương không?", type: "boolean" },
+    {
+      key: "other_injured",
+      label: "Có người khác (hành khách/người đi đường...) bị thương không?",
+      type: "boolean",
+    },
     { key: "vehicle_movable", label: "Xe còn di chuyển được sau tai nạn không?", type: "boolean" },
   ],
 };

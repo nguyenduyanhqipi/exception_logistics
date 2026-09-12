@@ -37,7 +37,7 @@ ROLE AND SCOPE
   "rationale"/"explanation" when it changes what a reasonable option looks like (an
   already-agreed new time, a stated preference, extra context about why the situation
   happened). Do NOT treat it as a guarantee of customer behavior, a firm commitment, or
-  a substitute for the structured fields already in CONTEXT (has_injury,
+  a substitute for the structured fields already in CONTEXT (driver_injured,
   is_repeat_delivery, customer_accepted_delay_min when present, etc.) — those are what
   actually drive severity and ranking; description only adds color/nuance to your
   written explanation, never overrides a structured value that says otherwise.
@@ -328,8 +328,8 @@ Structured signals in CONTEXT (trust these over free-text description):
 
 Generate 2-3 options for the dispatcher.""",
     "accident": """SITUATION: The vehicle has been involved in a traffic accident. CONTEXT includes
-whether anyone is reported injured. Driver and public safety take precedence over
-every logistics consideration.
+whether the driver and/or anyone else is reported injured. Driver and public safety
+take precedence over every logistics consideration.
 
 Every option you generate must be a COMPLETE, standalone plan the dispatcher can pick
 and execute end-to-end — never split the mandatory safety step out as its own
@@ -344,33 +344,39 @@ Consider when generating options:
   continue with a DIFFERENT way of handling the goods and remaining route once the
   scene is stable (e.g. one option returns the goods to the depot and reschedules
   with the customer; another dispatches a replacement vehicle/driver to transfer the
-  cargo and continue the route). The options must differ in what happens AFTER safety
-  is handled, not in whether safety is handled.
+  cargo and continue the route; if the CONTEXT signals below allow it, one option may
+  have the CURRENT driver/vehicle continue after the scene is secured). The options
+  must differ in what happens AFTER safety is handled, not in whether safety is
+  handled.
 - cost_estimate and time_estimate_minutes for each option must be the TOTAL for that
   whole plan (the safety response plus the cargo action that follows it), not just the
   cargo portion — a dispatcher comparing options needs the real end-to-end cost/time
   of each complete path, not a number that silently omits the mandatory first step.
 - Never suggest continuing the delivery route before safety is addressed, even if
-  CONTEXT reports no injuries.
+  CONTEXT reports no injuries at all.
 
 Structured signals in CONTEXT (trust these over free-text description):
-- has_injury: when true, human safety outranks every SLA consideration — every
-  option's safety step must be the one that gets people cared for fastest, and cargo
-  recovery comes after. CRITICAL: CONTEXT does not currently distinguish WHO is
-  injured (the driver vs. someone else). Because the driver may be the injured
-  person, has_injury=true means you CANNOT assume the current driver is able to
-  continue driving — never propose an option where this vehicle/driver continues the
-  delivery route while has_injury is true, no matter what vehicle_movable says. Every
-  option's cargo-handling step must assume a replacement driver/vehicle is needed (or
-  the remaining stops are handed to another vehicle/rescheduled), exactly like
-  major_breakdown, until a human dispatcher separately confirms the driver is
-  unharmed and fit to drive.
+- driver_injured: whether the CURRENT DRIVER is injured. CRITICAL: true (or absent/
+  unknown — treat missing the same as true, err conservative) means this driver
+  CANNOT continue driving. Every option's cargo-handling step must then assume a
+  replacement driver/vehicle is needed (or the remaining stops are handed to another
+  vehicle/rescheduled), exactly like major_breakdown, until a human dispatcher
+  separately confirms the driver is unharmed and fit to drive. Only when
+  driver_injured is explicitly false may an option let the current driver continue
+  (subject to vehicle_movable below).
+- other_injured: whether someone OTHER than the driver (passenger, bystander...) is
+  injured. This still requires the full mandatory safety response as the first step
+  of every option (same as driver_injured), but by itself does NOT disable the
+  current driver — a driver who is unharmed can still drive after the scene is
+  secured, even if someone else at the scene was hurt. Do not conflate this signal
+  with driver_injured.
 - vehicle_movable: whether the vehicle ITSELF can still be driven after the collision
-  (mechanical/physical state only — it says nothing about whether the driver can
-  operate it). If has_injury is false AND vehicle_movable is true, a short
-  self-recovery to a safe spot may be far cheaper than dispatching another vehicle.
-  If vehicle_movable is false (regardless of has_injury), the cargo needs a
-  replacement vehicle and a tow, exactly like major_breakdown.
+  (mechanical/physical state only — says nothing about whether the driver can operate
+  it). Only relevant for a "current driver continues" option, and only when
+  driver_injured is explicitly false: if vehicle_movable is also true, a short
+  self-recovery to a safe spot / continuing the route after the scene is secured may
+  be far cheaper than dispatching another vehicle. If vehicle_movable is false, the
+  cargo needs a replacement vehicle and a tow regardless of who is or isn't injured.
 
 Generate 2-3 options for the dispatcher — each a complete plan as described above, not
 a bare safety-only step.""",

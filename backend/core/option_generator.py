@@ -57,12 +57,12 @@ class QuotaExceededError(RuntimeError):
 # Tín hiệu định lượng dispatcher nhập lúc tạo/sửa ngoại lệ, lưu nguyên bản ở
 # `exceptions.input_context` (xem models/exception.py). Mỗi sub_type CHỈ hỏi
 # đúng 1-2 số liệu (frontend/src/exceptionForm.ts::EXTRA_FIELD + 2 câu hỏi phụ
-# depot_on_time/has_injury), nên bảng dưới liệt kê theo sub_type để CONTEXT
+# depot_on_time/driver_injured), nên bảng dưới liệt kê theo sub_type để CONTEXT
 # không lẫn field của sub_type khác vào — LLM thấy `estimated_repair_min`
 # trong một ngoại lệ sai địa chỉ chỉ tổ gây nhiễu.
 #
 # TÊN FIELD GIỮ NGUYÊN VĂN như trong input_context/EXTRA_FIELD: SYSTEM_PROMPT
-# (scripts/seed_prompts.py) đã gọi đích danh `has_injury`, `is_repeat_delivery`
+# (scripts/seed_prompts.py) đã gọi đích danh `driver_injured`, `is_repeat_delivery`
 # là "structured fields already in CONTEXT" — đổi tên ở đây là prompt nói về
 # field không tồn tại.
 _INPUT_CONTEXT_SIGNALS = {
@@ -82,7 +82,7 @@ _INPUT_CONTEXT_SIGNALS = {
     "change_location": ("new_location_distance_km",),
     "minor_breakdown": ("estimated_repair_min",),
     "major_breakdown": ("current_lat", "current_lng", "current_address", "can_transfer_cargo_safely"),
-    "accident": ("has_injury", "vehicle_movable"),
+    "accident": ("driver_injured", "other_injured", "vehicle_movable"),
     # Sau redesign 2026-09-08 KHÔNG còn sub_type nào "trắng tín hiệu" — 11/11
     # sub_type đều có ít nhất 1 câu trả lời phụ đi vào CONTEXT.
     #
@@ -176,7 +176,7 @@ def build_context(db: Session, exception: Exception_) -> dict:
     for field in _INPUT_CONTEXT_SIGNALS.get(exception.sub_type, ()):
         value = input_context.get(field)
         # Dispatcher bỏ trống thì BỎ HẲN key, không set null: field vắng mặt
-        # nghĩa là "không có thông tin", còn `"has_injury": null` nằm chình
+        # nghĩa là "không có thông tin", còn `"driver_injured": null` nằm chình
         # ình trong CONTEXT rất dễ bị LLM đọc thành "đã kiểm tra, không có ai
         # bị thương" — sai đúng chỗ nhạy cảm nhất.
         if value is not None:

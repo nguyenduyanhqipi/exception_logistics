@@ -9,7 +9,11 @@ class ExceptionCreate(BaseModel):
     schedule_id: UUID
     exception_group: str
     answer_key: str
-    has_injury: Optional[bool] = None
+    # Tách từ `has_injury` gộp chung (đợt 12, việc 2): tài xế bị thương thì
+    # CHẮC CHẮN không lái tiếp được, người khác bị thương thì không suy ra
+    # được điều đó — 2 tín hiệu này dẫn tới phương án khác hẳn nhau.
+    driver_injured: Optional[bool] = None
+    other_injured: Optional[bool] = None
     area: Optional[str] = None
     description: Optional[str] = None
 
@@ -77,7 +81,11 @@ class ExceptionUpdate(BaseModel):
 
     exception_group: str
     answer_key: str
-    has_injury: Optional[bool] = None
+    # Tách từ `has_injury` gộp chung (đợt 12, việc 2): tài xế bị thương thì
+    # CHẮC CHẮN không lái tiếp được, người khác bị thương thì không suy ra
+    # được điều đó — 2 tín hiệu này dẫn tới phương án khác hẳn nhau.
+    driver_injured: Optional[bool] = None
+    other_injured: Optional[bool] = None
     area: Optional[str] = None
     description: Optional[str] = None
 
