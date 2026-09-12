@@ -45,6 +45,7 @@ _SIGNAL_FIELDS = (
     "from_stop_order",
     "to_stop_order",
     "delay_minutes",
+    "delay_unknown",
     "departure_delay_min",
     "driver_contact_lost_min",
     "estimated_traffic_duration_min",
@@ -152,6 +153,7 @@ def create_exception(
         delay_minutes=payload.delay_minutes,
         from_stop_order=payload.from_stop_order,
         to_stop_order=payload.to_stop_order,
+        delay_unknown=bool(payload.delay_unknown),
         shift_date=schedule.shift_date,
         now=now_local,
     )
@@ -655,6 +657,7 @@ def update_exception(
         delay_minutes=payload.delay_minutes,
         from_stop_order=payload.from_stop_order,
         to_stop_order=payload.to_stop_order,
+        delay_unknown=bool(payload.delay_unknown),
         shift_date=schedule.shift_date,
         now=now_local,
     )

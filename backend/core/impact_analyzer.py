@@ -22,7 +22,11 @@ def _to_time(value) -> "time | None":
 
 
 def compute_affected_stops(
-    stops: list[dict], delay_minutes: int, from_stop_order: int = 1, to_stop_order: "int | None" = None
+    stops: list[dict],
+    delay_minutes: int,
+    from_stop_order: int = 1,
+    to_stop_order: "int | None" = None,
+    delay_unknown: bool = False,
 ) -> list[dict]:
     """Tính ETA mới + sla_breach cho các điểm giao bị ảnh hưởng, dịch đều theo
     `delay_minutes`.
@@ -48,16 +52,26 @@ def compute_affected_stops(
             continue
         eta = _to_time(stop.get("eta"))
         sla_deadline = _to_time(stop.get("sla_deadline"))
-        new_eta = None
-        if eta is not None:
-            new_eta = (datetime.combine(date.today(), eta) + timedelta(minutes=delay_minutes)).time()
-        sla_breach = new_eta > sla_deadline if (new_eta is not None and sla_deadline is not None) else None
+        if delay_unknown:
+            # Chưa biết trễ bao lâu -> KHÔNG suy ra ETA/vi phạm SLA giả, để null
+            # cho frontend/AI biết đây là "chưa xác định" chứ không phải "an
+            # toàn". `delay_minutes=0` gửi kèm khi tick cờ này là giá trị VÔ
+            # NGHĨA, không được dùng để tính gì.
+            new_eta = None
+            sla_breach = None
+            stop_delay_minutes = None
+        else:
+            new_eta = None
+            if eta is not None:
+                new_eta = (datetime.combine(date.today(), eta) + timedelta(minutes=delay_minutes)).time()
+            sla_breach = new_eta > sla_deadline if (new_eta is not None and sla_deadline is not None) else None
+            stop_delay_minutes = delay_minutes
 
         affected.append(
             {
                 "stop_id": stop.get("stop_id"),
                 "order_id": stop.get("order_id"),
-                "delay_minutes": delay_minutes,
+                "delay_minutes": stop_delay_minutes,
                 "new_eta": new_eta.isoformat() if new_eta is not None else None,
                 "sla_breach": sla_breach,
                 "priority_tier": stop.get("priority_tier", "thuong"),
@@ -104,9 +118,12 @@ def analyze_impact(
     shift_date: date,
     now: datetime,
     to_stop_order: "int | None" = None,
+    delay_unknown: bool = False,
 ) -> dict:
     """Hàm chính — trả về đủ input cho `rule_engine.calculate_severity()`."""
-    affected_stops = compute_affected_stops(stops, delay_minutes, from_stop_order, to_stop_order)
+    affected_stops = compute_affected_stops(
+        stops, delay_minutes, from_stop_order, to_stop_order, delay_unknown=delay_unknown
+    )
     result = {
         "affected_stops": [{k: v for k, v in s.items() if k != "_sla_deadline_time"} for s in affected_stops],
         "time_to_deadline_min": compute_time_to_deadline_min(affected_stops, shift_date, now),

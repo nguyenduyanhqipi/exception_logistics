@@ -58,6 +58,10 @@ export function NewException() {
   // sau ("30" → hiển thị "030") thay vì thay thế, vì input DOM đang hiển thị
   // "0" theo đúng giá trị React truyền vào, không phải placeholder.
   const [delayMinutes, setDelayMinutes] = useState("0");
+  // Đợt 13: dispatcher CHƯA ước tính được trễ bao lâu (mất liên lạc tài xế, xe
+  // kẹt chưa biết bao giờ thông). Gửi kèm payload để impact_analyzer để
+  // new_eta/sla_breach = null thay vì suy ra "không vi phạm" từ 0 phút.
+  const [delayUnknown, setDelayUnknown] = useState(false);
   const [area, setArea] = useState("");
   const [description, setDescription] = useState("");
   // Mục F — khách chấp nhận trễ hơn SLA bao nhiêu (hỏi 2 bước, optional). CHỈ
@@ -89,6 +93,7 @@ export function NewException() {
     setScheduleId(picked.schedule_id);
   }, [prefillVehicleId, scheduleId, schedules, today]);
   const subType = group && answerKey ? ANSWER_TO_SUBTYPE[group]?.[answerKey] : null;
+  const delayUnknownEffective = delayUnknown && subType !== "late_departure";
   // Chỉ nhóm ngoại lệ có khả năng gây TRỄ mới cần hỏi khách có chấp nhận trễ
   // không — customer_reject/customer_change là vấn đề tại điểm giao/đổi yêu
   // cầu, không phải trễ tiến độ, hỏi câu này ở đó không có ý nghĩa.
@@ -98,6 +103,7 @@ export function NewException() {
     setGroup(newGroup);
     setAnswerKey("");
     setFollowUps({});
+    setDelayUnknown(false);
     setCustomerAcceptedDelayAnswer("");
     setCustomerAcceptedDelayMinInput("");
     // customer_reject/customer_change chỉ ảnh hưởng ĐÚNG 1 điểm giao theo
@@ -120,7 +126,11 @@ export function NewException() {
         answer_key: answerKey,
         from_stop_order: fromStopOrder,
         to_stop_order: affectsWholeRoute ? null : toStopOrder || null,
-        delay_minutes: Number(delayMinutes) || 0,
+        // `late_departure` luôn tự đồng bộ số phút từ câu hỏi trên nên KHÔNG
+        // có ô tick này — chặn luôn ở đây phòng khi dispatcher tick ở loại
+        // khác rồi mới đổi sang "xuất phát trễ" (ô tick ẩn đi nhưng state còn).
+        delay_minutes: delayUnknownEffective ? 0 : Number(delayMinutes) || 0,
+        delay_unknown: delayUnknownEffective,
         area: area || null,
         description: description || null,
       };
@@ -286,12 +296,23 @@ export function NewException() {
                 type="number"
                 min={0}
                 value={delayMinutes}
-                disabled={subType === "late_departure"}
+                disabled={subType === "late_departure" || delayUnknown}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => setDelayMinutes(e.target.value)}
               />
               {subType === "late_departure" && (
                 <span className="hint">Tự động lấy theo số phút trễ xuất phát ở trên.</span>
+              )}
+              {subType !== "late_departure" && (
+                <label style={{ display: "block", marginTop: 6, fontWeight: "normal" }}>
+                  <input
+                    type="checkbox"
+                    checked={delayUnknown}
+                    onChange={(e) => setDelayUnknown(e.target.checked)}
+                  />{" "}
+                  Không ước tính được (vd mất liên lạc tài xế, chưa biết bao giờ xong) — nên ghi rõ tình huống ở
+                  "Ghi chú thêm" bên dưới
+                </label>
               )}
             </div>
           </>

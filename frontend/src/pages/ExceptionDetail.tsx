@@ -115,10 +115,16 @@ export function ExceptionDetail() {
               {data.impact_analysis.affected_stops.map((s) => (
                 <tr key={s.stop_id}>
                   <td>{s.order_id}</td>
-                  <td>{s.new_eta}</td>
+                  <td>{s.new_eta ?? "—"}</td>
                   <td>{s.sla_deadline}</td>
-                  <td>{s.delay_minutes}</td>
-                  <td>{s.sla_breach ? "⚠️ Có" : "Không"}</td>
+                  <td>{s.delay_minutes ?? "—"}</td>
+                  <td>
+                    {s.sla_breach === null || s.sla_breach === undefined
+                      ? "Chưa xác định"
+                      : s.sla_breach
+                        ? "⚠️ Có"
+                        : "Không"}
+                  </td>
                 </tr>
               ))}
             </tbody>

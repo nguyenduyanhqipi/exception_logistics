@@ -24,6 +24,12 @@ class ExceptionCreate(BaseModel):
     from_stop_order: int = 1
     to_stop_order: Optional[int] = None
     delay_minutes: int = 0
+    # Đợt 13: dispatcher tick khi KHÔNG ước tính được số phút trễ (vd mất liên
+    # lạc tài xế, xe kẹt chưa biết bao giờ thông) — True thì impact_analyzer bỏ
+    # qua tính sla_breach/new_eta cho các điểm bị ảnh hưởng (để null = "chưa xác
+    # định", KHÔNG phải false = "không vi phạm"). KHÔNG ảnh hưởng severity
+    # (rule_engine không đọc field này).
+    delay_unknown: Optional[bool] = None
 
     # Các tín hiệu định lượng riêng theo sub_type (mục 5.2) — dispatcher chỉ
     # điền field liên quan đến sub_type đã chọn, các field khác bỏ qua.
@@ -92,6 +98,12 @@ class ExceptionUpdate(BaseModel):
     from_stop_order: int = 1
     to_stop_order: Optional[int] = None
     delay_minutes: int = 0
+    # Đợt 13: dispatcher tick khi KHÔNG ước tính được số phút trễ (vd mất liên
+    # lạc tài xế, xe kẹt chưa biết bao giờ thông) — True thì impact_analyzer bỏ
+    # qua tính sla_breach/new_eta cho các điểm bị ảnh hưởng (để null = "chưa xác
+    # định", KHÔNG phải false = "không vi phạm"). KHÔNG ảnh hưởng severity
+    # (rule_engine không đọc field này).
+    delay_unknown: Optional[bool] = None
 
     departure_delay_min: Optional[int] = None
     driver_contact_lost_min: Optional[int] = None

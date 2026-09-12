@@ -73,10 +73,12 @@ export interface ExceptionSummary {
 export interface AffectedStop {
   stop_id: string;
   order_id: string;
-  new_eta: string;
+  // 3 field này NULL khi dispatcher tick "Không ước tính được" số phút trễ lúc
+  // khai báo (đợt 13) — null nghĩa là CHƯA XÁC ĐỊNH, không phải "không vi phạm".
+  new_eta: string | null;
   sla_deadline: string;
-  sla_breach: boolean;
-  delay_minutes: number;
+  sla_breach: boolean | null;
+  delay_minutes: number | null;
   priority_tier: string;
   sla_penalty: number | null;
 }

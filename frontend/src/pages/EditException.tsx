@@ -47,6 +47,10 @@ export function EditException() {
   const [affectsWholeRoute, setAffectsWholeRoute] = useState(true);
   const [toStopOrder, setToStopOrder] = useState<number | "">("");
   const [delayMinutes, setDelayMinutes] = useState("0");
+  // Đợt 13: dispatcher CHƯA ước tính được trễ bao lâu (mất liên lạc tài xế, xe
+  // kẹt chưa biết bao giờ thông). Gửi kèm payload để impact_analyzer để
+  // new_eta/sla_breach = null thay vì suy ra "không vi phạm" từ 0 phút.
+  const [delayUnknown, setDelayUnknown] = useState(false);
   const [area, setArea] = useState("");
   const [description, setDescription] = useState("");
   const [customerAcceptedDelayAnswer, setCustomerAcceptedDelayAnswer] = useState<"" | "yes" | "no" | "unknown">("");
@@ -88,6 +92,7 @@ export function EditException() {
     setAffectsWholeRoute(to === null || to === undefined);
     setToStopOrder(typeof to === "number" ? to : "");
     setDelayMinutes(typeof ctx.delay_minutes === "number" ? String(ctx.delay_minutes) : "0");
+    setDelayUnknown(ctx.delay_unknown === true);
 
     setArea(data.area ?? "");
     // Ghi chú người dùng gõ nằm ở `input_context.description`. Vẫn ưu tiên nó
@@ -103,6 +108,7 @@ export function EditException() {
   }, [data, loaded]);
 
   const subType = group && answerKey ? ANSWER_TO_SUBTYPE[group]?.[answerKey] : null;
+  const delayUnknownEffective = delayUnknown && subType !== "late_departure";
   const showCustomerDelayTolerance = showsCustomerDelayTolerance(group);
   const missingContext = !!data && !data.input_context;
 
@@ -126,7 +132,11 @@ export function EditException() {
         answer_key: answerKey,
         from_stop_order: fromStopOrder,
         to_stop_order: affectsWholeRoute ? null : toStopOrder || null,
-        delay_minutes: Number(delayMinutes) || 0,
+        // `late_departure` luôn tự đồng bộ số phút từ câu hỏi trên nên KHÔNG
+        // có ô tick này — chặn luôn ở đây phòng khi dispatcher tick ở loại
+        // khác rồi mới đổi sang "xuất phát trễ" (ô tick ẩn đi nhưng state còn).
+        delay_minutes: delayUnknownEffective ? 0 : Number(delayMinutes) || 0,
+        delay_unknown: delayUnknownEffective,
         area: area || null,
         description: description || null,
       };
@@ -285,12 +295,23 @@ export function EditException() {
                 type="number"
                 min={0}
                 value={delayMinutes}
-                disabled={subType === "late_departure"}
+                disabled={subType === "late_departure" || delayUnknown}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => setDelayMinutes(e.target.value)}
               />
               {subType === "late_departure" && (
                 <span className="hint">Tự động lấy theo số phút trễ xuất phát ở trên.</span>
+              )}
+              {subType !== "late_departure" && (
+                <label style={{ display: "block", marginTop: 6, fontWeight: "normal" }}>
+                  <input
+                    type="checkbox"
+                    checked={delayUnknown}
+                    onChange={(e) => setDelayUnknown(e.target.checked)}
+                  />{" "}
+                  Không ước tính được (vd mất liên lạc tài xế, chưa biết bao giờ xong) — nên ghi rõ tình huống ở
+                  "Ghi chú thêm" bên dưới
+                </label>
               )}
             </div>
           </>
