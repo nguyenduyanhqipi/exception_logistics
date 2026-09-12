@@ -68,22 +68,22 @@ export function isRejectionOutcome(subTypes: string[]): boolean {
 type DelayUnit = "minutes" | "hours" | "days";
 const DELAY_UNIT_TO_MINUTES: Record<DelayUnit, number> = { minutes: 1, hours: 60, days: 1440 };
 
-// Mốc thời gian đem ra so sánh khác nhau theo nhóm ngoại lệ: khách CHỦ ĐỘNG đổi
-// giờ/địa điểm thì so với kế hoạch ban đầu là vô nghĩa (chính khách đã bỏ mốc
-// đó), phải so với mốc mới đã thống nhất.
-function milestoneLabels(subType: string | undefined) {
-  if (subType === "change_time" || subType === "change_location") {
-    return {
-      question: "Kết quả so với giờ/địa điểm MỚI đã thống nhất với khách",
-      late: "Muộn so với mốc mới",
-      delayLabel: "Muộn bao nhiêu phút so với mốc mới đã thống nhất?",
-    };
-  }
-  return {
-    question: "Kết quả giao hàng",
-    late: "Muộn giờ",
-    delayLabel: "Muộn bao nhiêu phút?",
-  };
+// Mốc thời gian đem ra so sánh KHÔNG suy ra được từ sub_type (đợt 12, việc 3).
+// Trước đây chỉ change_time/change_location được đặc cách so với "mốc mới đã
+// thống nhất", 9 sub_type còn lại luôn so với kế hoạch gốc — sai khi một ngoại
+// lệ khác cũng đẻ ra mốc mới (vd tai nạn -> đưa hàng về kho + hẹn lại khách).
+// Nay dispatcher tự chọn mốc mỗi lần nhập; sub_type chỉ quyết định GIÁ TRỊ MẶC
+// ĐỊNH của lựa chọn đó.
+type DelayBaseline = "original" | "agreed_new";
+
+// Ghim vào đầu Ghi chú khi mốc là "mốc mới" (lựa chọn này không có cột riêng
+// trong DB). Cắt lại đúng tiền tố này lúc SỬA để không nối chồng tiền tố lần 2.
+const BASELINE_NOTE_PREFIX = "[So với mốc mới đã thống nhất với khách]";
+
+function delayLabels(baseline: DelayBaseline) {
+  return baseline === "agreed_new"
+    ? { late: "Muộn so với mốc mới", delayLabel: "Muộn bao nhiêu so với mốc mới đã thống nhất với khách?" }
+    : { late: "Muộn giờ", delayLabel: "Muộn bao nhiêu so với kế hoạch/SLA ban đầu?" };
 }
 
 interface OutcomeFormProps {
@@ -113,7 +113,6 @@ export function OutcomeForm({
   // sub_type hiện tại: backend cấm đổi qua lại giữa 2 kiểu, mà sub_type thì có
   // thể đã bị sửa sau khi outcome được ghi.
   const rejection = editing ? existing!.resolution_type !== null : isRejectionOutcome(subTypes);
-  const labels = milestoneLabels(subTypes.length === 1 ? subTypes[0] : undefined);
 
   // Đã ghi nhận là MUỘN thì không cho quay về ĐÚNG GIỜ (backend cũng chặn,
   // api/decisions.py::update_outcome) — khoá luôn lựa chọn ở UI cho rõ ràng.
@@ -121,6 +120,17 @@ export function OutcomeForm({
 
   const [deliveredOnTime, setDeliveredOnTime] = useState<boolean | null>(
     existing ? existing.delivered_on_time : null,
+  );
+  // Mặc định "mốc mới" cho change_time/change_location (thường đúng ngay từ đầu
+  // vì khách chủ động đổi giờ/địa điểm), mặc định "kế hoạch gốc" cho các
+  // sub_type còn lại — dispatcher tự đổi lại nếu ca cụ thể của họ khác thường lệ
+  // (vd accident có hẹn lại khách thì bấm sang "mốc mới").
+  const [delayBaseline, setDelayBaseline] = useState<DelayBaseline>(
+    existing?.notes?.startsWith(BASELINE_NOTE_PREFIX)
+      ? "agreed_new"
+      : subTypes.length === 1 && (subTypes[0] === "change_time" || subTypes[0] === "change_location")
+        ? "agreed_new"
+        : "original",
   );
   const [resolutionType, setResolutionType] = useState<string | null>(existing?.resolution_type ?? null);
   const [delayMinutes, setDelayMinutes] = useState(
@@ -169,7 +179,13 @@ export function OutcomeForm({
     pendingCostCursorDigits.current = onlyDigits(input.value.slice(0, cursor)).length;
     setActualCostDigits(onlyDigits(input.value));
   }
-  const [notes, setNotes] = useState(existing?.notes ?? "");
+  // Bỏ tiền tố mốc ra khỏi ô Ghi chú lúc SỬA — nó là thứ form tự ghim vào, không
+  // phải chữ dispatcher gõ; giữ lại thì lưu lần 2 sẽ ra 2 tiền tố chồng nhau.
+  const [notes, setNotes] = useState(
+    (existing?.notes ?? "").startsWith(BASELINE_NOTE_PREFIX)
+      ? existing!.notes!.slice(BASELINE_NOTE_PREFIX.length).trim()
+      : (existing?.notes ?? ""),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
@@ -194,6 +210,12 @@ export function OutcomeForm({
     setError(null);
     setSubmitting(true);
     try {
+      // Lựa chọn mốc KHÔNG có cột riêng trong DB (quyết định không đổi schema).
+      // Ghim nó vào đầu Ghi chú để đọc lại còn biết con số phút được đo từ đâu.
+      const notesToSend =
+        !rejection && deliveredOnTime === false && delayBaseline === "agreed_new" && !delayUnknown
+          ? `${BASELINE_NOTE_PREFIX} ${notes}`.trim()
+          : notes;
       const body = rejection
         ? {
             // Kiểu khách-từ-chối KHÔNG gửi delivered_on_time (backend từ chối):
@@ -202,7 +224,7 @@ export function OutcomeForm({
             delay_minutes: resolutionType === "redelivered" && delayMinutes !== "" ? Number(delayMinutes) : null,
             actual_cost: Number(actualCostDigits),
             resolution_type: resolutionType,
-            notes: notes || null,
+            notes: notesToSend || null,
           }
         : {
             delivered_on_time: deliveredOnTime,
@@ -215,7 +237,7 @@ export function OutcomeForm({
                 : null,
             actual_cost: Number(actualCostDigits),
             resolution_type: null,
-            notes: notes || null,
+            notes: notesToSend || null,
           };
       if (editing) {
         await apiClient.patch(`/api/outcomes/${existing!.outcome_id}`, body);
@@ -275,7 +297,7 @@ export function OutcomeForm({
       ) : (
         <div className="form-field">
           <label>
-            {labels.question} <span className="required-mark">*</span>
+            Kết quả giao hàng <span className="required-mark">*</span>
           </label>
           <div className="radio-group">
             <label
@@ -294,17 +316,42 @@ export function OutcomeForm({
             </label>
             <label className={`radio-option ${deliveredOnTime === false ? "selected" : ""}`}>
               <input type="radio" checked={deliveredOnTime === false} onChange={() => setDeliveredOnTime(false)} />
-              {labels.late}
+              {delayLabels(delayBaseline).late}
             </label>
           </div>
           {touched && missingOnTime && <span className="field-error">Vui lòng chọn đúng giờ hay muộn giờ.</span>}
         </div>
       )}
 
+      {showDelayInput && !rejection && (
+        <div className="form-field">
+          <label>Mốc thời gian tham chiếu</label>
+          <div className="radio-group">
+            <label className={`radio-option ${delayBaseline === "original" ? "selected" : ""}`}>
+              <input
+                type="radio"
+                checked={delayBaseline === "original"}
+                onChange={() => setDelayBaseline("original")}
+              />
+              Kế hoạch/SLA ban đầu
+            </label>
+            <label className={`radio-option ${delayBaseline === "agreed_new" ? "selected" : ""}`}>
+              <input
+                type="radio"
+                checked={delayBaseline === "agreed_new"}
+                onChange={() => setDelayBaseline("agreed_new")}
+              />
+              Giờ/địa điểm mới đã thống nhất với khách
+            </label>
+          </div>
+          <span className="hint">Chỉ ảnh hưởng CÁCH HỎI ở đây, không gửi lên hệ thống — tự nhớ khi đọc lại ghi chú.</span>
+        </div>
+      )}
+
       {showDelayInput && (
         <div className="form-field">
           <label>
-            {rejection ? "Trễ bao nhiêu phút so với lần giao đầu tiên?" : labels.delayLabel}
+            {rejection ? "Trễ bao nhiêu phút so với lần giao đầu tiên?" : delayLabels(delayBaseline).delayLabel}
             {rejection ? <span className="hint"> (không bắt buộc)</span> : <span className="required-mark"> *</span>}
           </label>
           {!rejection && (
