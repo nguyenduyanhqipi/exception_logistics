@@ -33,6 +33,7 @@ def _validate_outcome_fields(
     delay_minutes: "int | None",
     actual_cost: Decimal,
     resolution_type: "str | None" = None,
+    notes: "str | None" = None,
 ):
     """Ràng buộc chung cho tạo MỚI và SỬA outcome (việc 2, 2026-09-04).
 
@@ -71,10 +72,14 @@ def _validate_outcome_fields(
     if delivered_on_time is None:
         raise ValueError("Phải cho biết giao đúng giờ hay muộn giờ")
     if delivered_on_time is False:
-        if delay_minutes is None:
-            raise ValueError("Giao muộn giờ thì phải nhập số phút muộn")
-        if delay_minutes <= 0:
+        if delay_minutes is not None and delay_minutes <= 0:
             raise ValueError("Số phút muộn phải lớn hơn 0")
+        # `delay_minutes = None` khi giao muộn nghĩa là "không xác định được
+        # chính xác số phút" (vd trả hàng về kho, chưa hẹn được ngày giao lại
+        # cụ thể) — CHO PHÉP, nhưng bắt phải có ghi chú giải thích lý do, nếu
+        # không dữ liệu này vô nghĩa (không đúng giờ nhưng không biết trễ gì).
+        if delay_minutes is None and not (notes and notes.strip()):
+            raise ValueError("Không nhập được số phút trễ thì phải ghi rõ lý do ở Ghi chú")
     else:
         if delay_minutes is not None:
             raise ValueError("Giao đúng giờ thì không được nhập số phút muộn")
@@ -94,7 +99,11 @@ class OutcomeCreate(BaseModel):
     @model_validator(mode="after")
     def _check(self):
         _validate_outcome_fields(
-            self.delivered_on_time, self.delay_minutes, self.actual_cost, self.resolution_type
+            self.delivered_on_time,
+            self.delay_minutes,
+            self.actual_cost,
+            self.resolution_type,
+            self.notes,
         )
         return self
 
@@ -117,6 +126,10 @@ class OutcomeUpdate(BaseModel):
     @model_validator(mode="after")
     def _check(self):
         _validate_outcome_fields(
-            self.delivered_on_time, self.delay_minutes, self.actual_cost, self.resolution_type
+            self.delivered_on_time,
+            self.delay_minutes,
+            self.actual_cost,
+            self.resolution_type,
+            self.notes,
         )
         return self

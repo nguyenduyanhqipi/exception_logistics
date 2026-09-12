@@ -63,6 +63,11 @@ export function isRejectionOutcome(subTypes: string[]): boolean {
   return subTypes.length > 0 && subTypes.every((st) => REJECTION_SUB_TYPES.includes(st));
 }
 
+// Đơn vị nhập số phút trễ (đợt 12, việc 1). DB vẫn LUÔN lưu bằng PHÚT — đơn vị
+// chỉ tồn tại ở ô NHẬP, quy đổi ngay lúc submit, không lưu lại lựa chọn đơn vị.
+type DelayUnit = "minutes" | "hours" | "days";
+const DELAY_UNIT_TO_MINUTES: Record<DelayUnit, number> = { minutes: 1, hours: 60, days: 1440 };
+
 // Mốc thời gian đem ra so sánh khác nhau theo nhóm ngoại lệ: khách CHỦ ĐỘNG đổi
 // giờ/địa điểm thì so với kế hoạch ban đầu là vô nghĩa (chính khách đã bỏ mốc
 // đó), phải so với mốc mới đã thống nhất.
@@ -121,6 +126,18 @@ export function OutcomeForm({
   const [delayMinutes, setDelayMinutes] = useState(
     existing?.delay_minutes != null ? String(existing.delay_minutes) : "",
   );
+  // Khi SỬA thì luôn hiện lại theo PHÚT (đúng như DB lưu) — không đoán ngược đơn
+  // vị đã gõ lần đầu (không lưu, cũng không cần).
+  const [delayUnit, setDelayUnit] = useState<DelayUnit>("minutes");
+  // "Giao muộn nhưng không quy đổi ra được con số chính xác" (vd trả hàng về kho,
+  // chưa hẹn được ngày giao lại). Bật lại đúng trạng thái đã lưu khi SỬA: outcome
+  // kiểu tiến độ, muộn giờ, mà delay_minutes trống thì chính là ca này.
+  const [delayUnknown, setDelayUnknown] = useState(
+    !!existing &&
+      existing.resolution_type === null &&
+      existing.delivered_on_time === false &&
+      existing.delay_minutes == null,
+  );
   const [actualCostDigits, setActualCostDigits] = useState(
     existing?.actual_cost != null ? String(Math.round(existing.actual_cost)) : "",
   );
@@ -161,7 +178,10 @@ export function OutcomeForm({
   const missingOnTime = !rejection && deliveredOnTime === null;
   // Kiểu tiến độ: muộn giờ thì BẮT BUỘC số phút. Kiểu khách-từ-chối: số phút chỉ
   // là thông tin thêm khi giao lại được, không bắt buộc.
-  const missingDelay = !rejection && deliveredOnTime === false && (delayMinutes === "" || Number(delayMinutes) <= 0);
+  const missingDelay =
+    !rejection &&
+    deliveredOnTime === false &&
+    (delayUnknown ? notes.trim() === "" : delayMinutes === "" || Number(delayMinutes) <= 0);
   const missingCost = actualCostDigits === "";
   const invalid = missingResolution || missingOnTime || missingDelay || missingCost;
 
@@ -187,7 +207,12 @@ export function OutcomeForm({
         : {
             delivered_on_time: deliveredOnTime,
             // Đúng giờ thì KHÔNG được gửi delay_minutes (backend từ chối).
-            delay_minutes: deliveredOnTime === false ? Number(delayMinutes) : null,
+            delay_minutes:
+              deliveredOnTime === false
+                ? delayUnknown
+                  ? null
+                  : Number(delayMinutes) * DELAY_UNIT_TO_MINUTES[delayUnit]
+                : null,
             actual_cost: Number(actualCostDigits),
             resolution_type: null,
             notes: notes || null,
@@ -282,15 +307,53 @@ export function OutcomeForm({
             {rejection ? "Trễ bao nhiêu phút so với lần giao đầu tiên?" : labels.delayLabel}
             {rejection ? <span className="hint"> (không bắt buộc)</span> : <span className="required-mark"> *</span>}
           </label>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={delayMinutes}
-            onFocus={(e) => e.target.select()}
-            onChange={(e) => setDelayMinutes(e.target.value.replace(/\D/g, ""))}
-          />
-          {touched && missingDelay && <span className="field-error">Nhập số phút muộn (số nguyên lớn hơn 0).</span>}
+          {!rejection && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <input
+                type="checkbox"
+                checked={delayUnknown}
+                onChange={(e) => {
+                  setDelayUnknown(e.target.checked);
+                  if (e.target.checked) setDelayMinutes("");
+                }}
+              />
+              Không xác định được chính xác (ghi rõ lý do ở Ghi chú bên dưới)
+            </label>
+          )}
+          {!delayUnknown && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={delayMinutes}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setDelayMinutes(e.target.value.replace(/\D/g, ""))}
+              />
+              {!rejection && (
+                // Đổi đơn vị giữa chừng thì XOÁ số đã gõ (coi như gõ lại từ đầu)
+                // thay vì tự quy đổi qua lại — tránh làm tròn sai lệch âm thầm.
+                <select
+                  value={delayUnit}
+                  onChange={(e) => {
+                    setDelayUnit(e.target.value as DelayUnit);
+                    setDelayMinutes("");
+                  }}
+                >
+                  <option value="minutes">phút</option>
+                  <option value="hours">giờ</option>
+                  <option value="days">ngày</option>
+                </select>
+              )}
+            </div>
+          )}
+          {touched && missingDelay && (
+            <span className="field-error">
+              {delayUnknown
+                ? "Ghi rõ lý do ở Ghi chú khi không xác định được số phút trễ."
+                : "Nhập số lớn hơn 0."}
+            </span>
+          )}
         </div>
       )}
 
