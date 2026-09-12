@@ -170,6 +170,26 @@ def _handling_minutes(db: Session, lo, hi):
     ).scalar_one()
 
 
+def _settlement_minutes(db: Session, lo, hi):
+    """Trung bình số phút từ lúc báo ngoại lệ tới lúc GHI NHẬN KẾT QUẢ THỰC TẾ
+    (`Outcome.recorded_at`) — khác `_handling_minutes()` ở trên (đo tới lúc CHỐT
+    phương án). Đây là ước lượng THỜI GIAN GIẢI QUYẾT THỰC TẾ, thô hơn: đo tới
+    lúc dispatcher NHẬP kết quả vào form, không chắc chắn là lúc hàng thực sự
+    tới tay khách (dispatcher có thể nhập trễ hơn lúc việc thực sự xong).
+
+    CÙNG GIỚI HẠN combined-mode như `_handling_minutes()` (xem đó) — quyết định
+    GỘP nhiều ngoại lệ (`Decision.exception_id IS NULL`) chưa tính vào đây, để
+    dành sửa cùng lúc nếu sau này gộp cả 2 hàm.
+    """
+    return db.execute(
+        select(func.avg(func.extract("epoch", Outcome.recorded_at - Exception_.reported_at) / 60.0))
+        .select_from(Outcome)
+        .join(Decision, Decision.decision_id == Outcome.decision_id)
+        .join(Exception_, Exception_.exception_id == Decision.exception_id)
+        .where(Outcome.recorded_at >= lo, Outcome.recorded_at < hi)
+    ).scalar_one()
+
+
 def _outcome_metrics(db: Session, lo, hi) -> dict:
     """Đúng hạn / chi phí thực tế / độ chính xác ước tính của AI, theo
     `Outcome.recorded_at` (xem mốc thời gian ở docstring đầu file)."""
@@ -392,6 +412,7 @@ def _period_payload(db: Session, company_id: str, period_type: str, anchor: date
 
     exc = _exception_metrics(db, lo, hi)
     outcome = _outcome_metrics(db, lo, hi)
+    settle_minutes = _settlement_minutes(db, lo, hi)
     avg_minutes = _handling_minutes(db, lo, hi)
     resolved = exc["by_status"].get("resolved", 0)
 
@@ -412,6 +433,12 @@ def _period_payload(db: Session, company_id: str, period_type: str, anchor: date
             },
             "resolved_rate": round(resolved / exc["total"], 4) if exc["total"] else None,
             "avg_resolution_minutes": round(float(avg_minutes), 1) if avg_minutes is not None else None,
+            "avg_resolution_minutes_note": (
+                "Thời gian RA QUYẾT ĐỊNH (từ lúc báo tới lúc chốt phương án), "
+                "chỉ tính ngoại lệ có quyết định RIÊNG LẺ — quyết định GỘP nhiều "
+                "ngoại lệ cùng lúc chưa tính vào số này."
+            ),
+            "avg_settlement_minutes": round(float(settle_minutes), 1) if settle_minutes is not None else None,
             **outcome,
             **_ai_option_rate(db, company_id, lo, hi),
         },

@@ -28,6 +28,10 @@ interface Kpi {
   by_status: Record<string, number>;
   resolved_rate: number | null;
   avg_resolution_minutes: number | null;
+  /** Giải thích giới hạn của `avg_resolution_minutes` — backend gửi kèm để nhãn
+   *  trên UI và bản chất con số không lệch nhau khi query đổi. */
+  avg_resolution_minutes_note: string;
+  avg_settlement_minutes: number | null;
   on_time_rate: number | null;
   outcome_count: number;
   total_actual_cost: number;
@@ -98,6 +102,16 @@ function vnd(v: number | null | undefined): string {
 }
 function minutes(v: number | null | undefined): string {
   return v === null || v === undefined ? "-" : `${v} phút`;
+}
+
+/** Như `minutes()` nhưng đổi sang giờ/ngày khi con số lớn — "1056.9 phút" đọc
+ *  không ra được là gần 18 tiếng. Dùng cho chỉ số giải quyết thực tế (thường
+ *  tính bằng ngày), chỉ số ra quyết định vẫn để nguyên phút. */
+function duration(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "-";
+  if (v < 90) return `${Math.round(v)} phút`;
+  if (v < 1440) return `${(v / 60).toFixed(1)} giờ`;
+  return `${(v / 1440).toFixed(1)} ngày`;
 }
 
 export function ManagerDashboard() {
@@ -218,7 +232,26 @@ export function ManagerDashboard() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 16 }}>
             <Stat label="Tổng ngoại lệ" value={a.total_exceptions} compare={b?.total_exceptions} higherIsBetter={null} />
             <Stat label="Tỷ lệ đã xử lý" value={pct(a.resolved_rate)} raw={a.resolved_rate} compareRaw={b?.resolved_rate} higherIsBetter />
-            <Stat label="Thời gian xử lý TB" value={minutes(a.avg_resolution_minutes)} raw={a.avg_resolution_minutes} compareRaw={b?.avg_resolution_minutes} higherIsBetter={false} />
+            {/* Đợt 12, việc 4: 2 chỉ số thời gian KHÁC NHAU, tên cũ "Thời gian
+                xử lý TB" không nói rõ đang đo tới mốc nào. */}
+            <Stat
+              label="TB thời gian ra quyết định"
+              value={minutes(a.avg_resolution_minutes)}
+              raw={a.avg_resolution_minutes}
+              compareRaw={b?.avg_resolution_minutes}
+              higherIsBetter={false}
+              hint="Từ lúc báo tới lúc chốt phương án · chỉ quyết định riêng lẻ"
+              hintTitle={a.avg_resolution_minutes_note}
+            />
+            <Stat
+              label="TB thời gian giải quyết thực tế"
+              value={duration(a.avg_settlement_minutes)}
+              raw={a.avg_settlement_minutes}
+              compareRaw={b?.avg_settlement_minutes}
+              higherIsBetter={false}
+              hint="Tính tới lúc ghi nhận kết quả"
+              hintTitle="Tính tới lúc ghi nhận kết quả — có thể trễ hơn lúc việc thực sự xong nếu nhập kết quả muộn. Cùng giới hạn: chưa tính quyết định gộp nhiều ngoại lệ."
+            />
             <Stat label="Tỷ lệ giao đúng hạn" value={pct(a.on_time_rate)} raw={a.on_time_rate} compareRaw={b?.on_time_rate} higherIsBetter />
             <Stat label="Tổng chi phí thực tế" value={vnd(a.total_actual_cost)} raw={a.total_actual_cost} compareRaw={b?.total_actual_cost} higherIsBetter={false} />
             {/* Mục 6.1: tỷ lệ SINH PHƯƠNG ÁN thành công — chỉ số chất lượng sản
@@ -296,7 +329,7 @@ export function ManagerDashboard() {
             series={comparePair(data, [a.total_actual_cost], [b.total_actual_cost])}
             format={vnd}
           />
-          <h3>Thời gian xử lý TB</h3>
+          <h3>TB thời gian ra quyết định</h3>
           <BarChart
             categories={["Phút/ca"]}
             series={comparePair(data, [a.avg_resolution_minutes ?? 0], [b.avg_resolution_minutes ?? 0])}
@@ -482,6 +515,7 @@ function Stat({
   compareRaw,
   higherIsBetter,
   hint,
+  hintTitle,
 }: {
   label: string;
   value: string | number;
@@ -490,6 +524,8 @@ function Stat({
   compareRaw?: number | null;
   higherIsBetter?: boolean | null;
   hint?: string;
+  /** Chú thích ĐẦY ĐỦ hiện khi rê chuột; `hint` chỉ là bản rút gọn đủ chỗ trong ô. */
+  hintTitle?: string;
 }) {
   const current = raw ?? (typeof value === "number" ? value : null);
   const previous = compareRaw ?? compare ?? null;
@@ -514,7 +550,11 @@ function Stat({
       <div style={{ fontSize: 12, color: "#6b7280", textTransform: "uppercase" }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700 }}>{value}</div>
       {diffNode}
-      {hint && <div style={{ fontSize: 11, color: "#9ca3af" }}>{hint}</div>}
+      {hint && (
+        <div style={{ fontSize: 11, color: "#9ca3af" }} title={hintTitle ?? hint}>
+          {hint}
+        </div>
+      )}
     </div>
   );
 }
