@@ -408,11 +408,17 @@ export function OutcomeForm({
         <label>
           Chi phí thực tế (VNĐ) <span className="required-mark">*</span>
         </label>
+        {/* onFocus select-all: SỬA 1 kết quả đã có sẵn chi phí mà gõ đè thì số
+            mới bị CHÈN vào giữa số cũ ("222" + gõ "250000" -> 222.250.000) chứ
+            không thay thế — không phải lỗi định dạng/con trỏ (logic đó đã fix ở
+            đợt 9). Mọi ô số khác trong 2 form đều đã có dòng này, riêng ô này
+            thiếu. */}
         <input
           ref={costInputRef}
           inputMode="numeric"
           value={groupThousands(actualCostDigits)}
           placeholder="VD: 180.000"
+          onFocus={(e) => e.target.select()}
           onChange={handleCostChange}
         />
         <span className="hint">
