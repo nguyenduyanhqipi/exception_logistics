@@ -7,12 +7,17 @@ import { ConfirmDialog } from "./ConfirmDialog";
 // Menu 3 chấm Sửa/Xoá cho 1 ngoại lệ (việc 5). Dùng chung ở Dashboard,
 // /history và ExceptionDetail.
 //
-// CHỈ hiện khi ngoại lệ CHƯA có quyết định nào được xác nhận. Từ khi tách
-// "chọn phương án" khỏi "nhập kết quả" (2026-09-04), `awaiting_outcome` cũng
-// đã có `decisions.selected_option_id` trỏ vào 1 phương án — sửa lúc đó sẽ xoá
-// đúng phương án đang bị quyết định tham chiếu. Backend chặn cứng cả 2 trạng
-// thái (api/exceptions.py::_load_editable_exception); ẩn nút ở đây chỉ là lớp
-// đầu tiên.
+// Ẩn ĐÚNG ở `resolved` — khớp lại ranh giới backend
+// (api/exceptions.py::_load_editable_exception): đã có kết quả thực tế thì
+// thôi, vì `outcomes.decision_id` là FK NOT NULL, xoá quyết định là mất luôn
+// số liệu KPI đã chốt.
+//
+// TRƯỚC ĐÂY file này còn ẩn cả ở `awaiting_outcome` với lý do "đã có
+// decisions.selected_option_id trỏ vào 1 option, xoá là vỡ khoá ngoại". Lý do
+// đó hết hiệu lực từ Quyết định 4 (2026-09-08): backend nới tới
+// `awaiting_outcome` và tự huỷ quyết định treo bằng `_discard_pending_decision()`
+// trước khi xoá option/ngoại lệ. Frontend quên cập nhật theo nên dispatcher lỡ
+// bấm xác nhận phương án cho 1 ngoại lệ nhập nhầm là hết đường sửa/xoá.
 
 interface ExceptionActionsMenuProps {
   exceptionId: string;
@@ -40,7 +45,7 @@ export function ExceptionActionsMenu({ exceptionId, status, subTypeLabel, onDele
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  if (status === "resolved" || status === "awaiting_outcome") return null;
+  if (status === "resolved") return null;
 
   async function handleDelete() {
     setBusy(true);
