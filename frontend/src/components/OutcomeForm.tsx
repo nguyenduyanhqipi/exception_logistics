@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
@@ -151,33 +151,14 @@ export function OutcomeForm({
   const [actualCostDigits, setActualCostDigits] = useState(
     existing?.actual_cost != null ? String(Math.round(existing.actual_cost)) : "",
   );
-  const costInputRef = useRef<HTMLInputElement | null>(null);
-  // Ghi lại "đã gõ xong bao nhiêu CHỮ SỐ trước con trỏ" ngay lúc onChange (tính
-  // trên giá trị thô, trước khi định dạng lại) — không ghi vị trí KÝ TỰ vì dấu
-  // chấm ngăn cách chèn thêm vào chuỗi hiển thị sẽ làm lệch vị trí đó.
-  const pendingCostCursorDigits = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    if (pendingCostCursorDigits.current === null) return;
-    const el = costInputRef.current;
-    if (el) {
-      const formatted = groupThousands(actualCostDigits);
-      let pos = 0;
-      let digitsSeen = 0;
-      while (pos < formatted.length && digitsSeen < pendingCostCursorDigits.current) {
-        if (formatted[pos] !== ".") digitsSeen++;
-        pos++;
-      }
-      el.setSelectionRange(pos, pos);
-    }
-    pendingCostCursorDigits.current = null;
-  }, [actualCostDigits]);
-
+  // Ô nhập giữ ĐÚNG dãy số thô người dùng gõ, KHÔNG tự chèn dấu chấm ngăn cách
+  // trong lúc gõ. Cơ chế cũ (format lại mỗi ký tự + tự đặt lại vị trí con trỏ ở
+  // useLayoutEffect) vẫn sinh ca gõ nhanh ra sai số (gõ "250000" ra
+  // "22.250.000" dù ô đang trống) — bỏ hẳn thay vì vá tiếp: không chèn thêm ký
+  // tự nào thì không còn gì để tính lệch. Số có dấu chấm hiện ở dòng chữ nhỏ
+  // bên dưới (span, không phải input nên không dính lỗi con trỏ).
   function handleCostChange(e: ChangeEvent<HTMLInputElement>) {
-    const input = e.target;
-    const cursor = input.selectionStart ?? input.value.length;
-    pendingCostCursorDigits.current = onlyDigits(input.value.slice(0, cursor)).length;
-    setActualCostDigits(onlyDigits(input.value));
+    setActualCostDigits(onlyDigits(e.target.value));
   }
   // Bỏ tiền tố mốc ra khỏi ô Ghi chú lúc SỬA — nó là thứ form tự ghim vào, không
   // phải chữ dispatcher gõ; giữ lại thì lưu lần 2 sẽ ra 2 tiền tố chồng nhau.
@@ -408,19 +389,14 @@ export function OutcomeForm({
         <label>
           Chi phí thực tế (VNĐ) <span className="required-mark">*</span>
         </label>
-        {/* onFocus select-all: SỬA 1 kết quả đã có sẵn chi phí mà gõ đè thì số
-            mới bị CHÈN vào giữa số cũ ("222" + gõ "250000" -> 222.250.000) chứ
-            không thay thế — không phải lỗi định dạng/con trỏ (logic đó đã fix ở
-            đợt 9). Mọi ô số khác trong 2 form đều đã có dòng này, riêng ô này
-            thiếu. */}
         <input
-          ref={costInputRef}
           inputMode="numeric"
-          value={groupThousands(actualCostDigits)}
-          placeholder="VD: 180.000"
+          value={actualCostDigits}
+          placeholder="VD: 180000"
           onFocus={(e) => e.target.select()}
           onChange={handleCostChange}
         />
+        {actualCostDigits !== "" && <span className="hint">= {groupThousands(actualCostDigits)}đ</span>}
         <span className="hint">
           {rejection
             ? "Chi phí thật đã phát sinh để xử lý (phí giao lại / chở hàng về kho / xử lý huỷ đơn). Nhập 0 nếu không phát sinh."
