@@ -1,9 +1,21 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem("sidebar_collapsed") === "true";
+  });
+
+  function toggleSidebar() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("sidebar_collapsed", String(next));
+      return next;
+    });
+  }
 
   async function handleLogout() {
     await logout();
@@ -12,33 +24,114 @@ export function Layout() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <nav>
-          {/* "Nhập ngoại lệ mới" KHÔNG còn ở nav (2026-09-04): route
-              /exceptions/new vẫn giữ, vào bằng nút "+ Ngoại lệ" trên Dashboard
-              — nơi đã biết sẵn xe nào, đỡ phải tự chọn lại chuyến.
-              "Lịch sử" đứng ngay TRƯỚC khối Báo cáo/Cài đặt; với điều phối
-              viên (không có 2 mục đó) nó là mục cuối. */}
-          <NavLink to="/" end>
-            Dashboard
+      <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+        <div className="sidebar-header">
+          <NavLink to="/" className="sidebar-brand" title="Exception Logistics">
+            <span className="sidebar-brand-icon">🚛</span>
+            <span className="sidebar-brand-name">Exception Logistics</span>
           </NavLink>
-          <NavLink to="/operations">Xe &amp; Kế hoạch</NavLink>
-          <NavLink to="/history">Lịch sử</NavLink>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={toggleSidebar}
+            title={collapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
+            aria-label={collapsed ? "Mở rộng menu" : "Thu gọn menu"}
+          >
+            {collapsed ? "▶" : "◀"}
+          </button>
+        </div>
+
+        <nav className="sidebar-nav">
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+            title="Dashboard"
+          >
+            <span className="nav-icon">📋</span>
+            <span className="nav-label">Dashboard</span>
+          </NavLink>
+
+          <NavLink
+            to="/operations"
+            className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+            title="Xe & Kế hoạch"
+          >
+            <span className="nav-icon">🚛</span>
+            <span className="nav-label">Xe &amp; Kế hoạch</span>
+          </NavLink>
+
+          <NavLink
+            to="/history"
+            className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+            title="Lịch sử"
+          >
+            <span className="nav-icon">📜</span>
+            <span className="nav-label">Lịch sử</span>
+          </NavLink>
+
           {user?.role === "manager" && (
             <>
-              <NavLink to="/manager">Báo cáo</NavLink>
-              <NavLink to="/settings">Cài đặt</NavLink>
+              <NavLink
+                to="/manager"
+                className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                title="Báo cáo"
+              >
+                <span className="nav-icon">📊</span>
+                <span className="nav-label">Báo cáo</span>
+              </NavLink>
+
+              <NavLink
+                to="/settings"
+                className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                title="Cài đặt"
+              >
+                <span className="nav-icon">⚙️</span>
+                <span className="nav-label">Cài đặt</span>
+              </NavLink>
             </>
           )}
         </nav>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span className="user-info">
-            {user?.role === "manager" ? "Quản lý" : "Điều phối viên"}
-          </span>
-          <button onClick={handleLogout}>Đăng xuất</button>
+
+        <div className="sidebar-footer">
+          {collapsed && (
+            <button
+              type="button"
+              className="btn-logout"
+              onClick={() => setCollapsed(false)}
+              title="Mở rộng menu"
+              style={{ marginBottom: 4 }}
+            >
+              ▶
+            </button>
+          )}
+          <div
+            className="sidebar-user"
+            title={user?.role === "manager" ? "Quản lý" : "Điều phối viên"}
+          >
+            <div className="sidebar-user-avatar">👤</div>
+            <div className="sidebar-user-info">
+              <span className="user-info">
+                {user?.role === "manager" ? "Quản lý" : "Điều phối viên"}
+              </span>
+              <span className="user-role-badge">
+                {user?.role === "manager" ? "Toàn quyền hệ thống" : "Vận hành tuyến xe"}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-logout"
+            onClick={handleLogout}
+            title="Đăng xuất khỏi hệ thống"
+          >
+            <span>🚪</span>
+            <span>Đăng xuất</span>
+          </button>
         </div>
-      </header>
-      <main style={{ flex: 1 }}>
+      </aside>
+
+      <main className="main-content">
         <Outlet />
       </main>
     </div>
