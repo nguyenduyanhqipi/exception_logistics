@@ -1,5 +1,16 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import {
+  Truck,
+  LayoutDashboard,
+  History as HistoryIcon,
+  BarChart3,
+  Settings as SettingsIcon,
+  User as UserIcon,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export function Layout() {
@@ -27,7 +38,9 @@ export function Layout() {
       <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
         <div className="sidebar-header">
           <NavLink to="/" className="sidebar-brand" title="Exception Logistics">
-            <span className="sidebar-brand-icon">🚛</span>
+            <span className="sidebar-brand-icon">
+              <Truck size={17} />
+            </span>
             <span className="sidebar-brand-name">Exception Logistics</span>
           </NavLink>
           <button
@@ -37,7 +50,7 @@ export function Layout() {
             title={collapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
             aria-label={collapsed ? "Mở rộng menu" : "Thu gọn menu"}
           >
-            {collapsed ? "▶" : "◀"}
+            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
           </button>
         </div>
 
@@ -48,7 +61,9 @@ export function Layout() {
             className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
             title="Dashboard"
           >
-            <span className="nav-icon">📋</span>
+            <span className="nav-icon">
+              <LayoutDashboard size={18} />
+            </span>
             <span className="nav-label">Dashboard</span>
           </NavLink>
 
@@ -57,7 +72,9 @@ export function Layout() {
             className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
             title="Xe & Kế hoạch"
           >
-            <span className="nav-icon">🚛</span>
+            <span className="nav-icon">
+              <Truck size={18} />
+            </span>
             <span className="nav-label">Xe &amp; Kế hoạch</span>
           </NavLink>
 
@@ -66,7 +83,9 @@ export function Layout() {
             className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
             title="Lịch sử"
           >
-            <span className="nav-icon">📜</span>
+            <span className="nav-icon">
+              <HistoryIcon size={18} />
+            </span>
             <span className="nav-label">Lịch sử</span>
           </NavLink>
 
@@ -77,7 +96,9 @@ export function Layout() {
                 className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
                 title="Báo cáo"
               >
-                <span className="nav-icon">📊</span>
+                <span className="nav-icon">
+                  <BarChart3 size={18} />
+                </span>
                 <span className="nav-label">Báo cáo</span>
               </NavLink>
 
@@ -86,7 +107,9 @@ export function Layout() {
                 className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
                 title="Cài đặt"
               >
-                <span className="nav-icon">⚙️</span>
+                <span className="nav-icon">
+                  <SettingsIcon size={18} />
+                </span>
                 <span className="nav-label">Cài đặt</span>
               </NavLink>
             </>
@@ -102,14 +125,16 @@ export function Layout() {
               title="Mở rộng menu"
               style={{ marginBottom: 4 }}
             >
-              ▶
+              <ChevronRight size={14} />
             </button>
           )}
           <div
             className="sidebar-user"
             title={user?.role === "manager" ? "Quản lý" : "Điều phối viên"}
           >
-            <div className="sidebar-user-avatar">👤</div>
+            <div className="sidebar-user-avatar">
+              <UserIcon size={15} />
+            </div>
             <div className="sidebar-user-info">
               <span className="user-info">
                 {user?.role === "manager" ? "Quản lý" : "Điều phối viên"}
@@ -125,7 +150,7 @@ export function Layout() {
             onClick={handleLogout}
             title="Đăng xuất khỏi hệ thống"
           >
-            <span>🚪</span>
+            <LogOut size={15} />
             <span>Đăng xuất</span>
           </button>
         </div>
